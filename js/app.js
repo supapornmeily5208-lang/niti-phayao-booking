@@ -23,6 +23,7 @@ const state = {
     bookings: null,
     filter: 'pending',
   },
+  receiptView: null,
 }
 
 const SHIRT_MAX = 20
@@ -606,6 +607,7 @@ function adminPage() {
         ${['pending', 'confirmed', 'cancelled', 'all'].map((item) => `<button class="btn btn-line" type="button" data-action="filter" data-filter="${item}" aria-pressed="${state.admin.filter === item}">${item === 'all' ? 'ทั้งหมด' : statusText(item)}</button>`).join('')}
         <button class="btn btn-line" type="button" data-action="export">ส่งออก CSV</button>
         <button class="btn btn-line" type="button" data-action="export-pdf">ส่งออก PDF</button>
+        <button class="btn btn-line" type="button" data-action="sheets-sync">ซิงก์ไป Google Sheets</button>
       </div>
       <section class="panel"><h3>เสื้อ</h3>${bookingTable('shirt', data.shirts)}</section>
       <section class="panel" style="margin-top:16px"><h3>โต๊ะ</h3>${bookingTable('table', data.tables)}</section>
@@ -971,6 +973,27 @@ function adminPdfLines(data) {
   return lines
 }
 
+async function syncGoogleSheets() {
+  if (!state.admin.token) return
+  state.busy = true
+  state.error = ''
+  render(true)
+  try {
+    const data = await api('/api/admin/sheets-sync', {
+      method: 'POST',
+      headers: { 'X-Admin-Token': state.admin.token },
+      body: '{}',
+    })
+    toast(`ซิงก์ Google Sheets แล้ว ${data.count || 0} รายการ`)
+  } catch (error) {
+    state.error = error.message
+    toast(error.message)
+  } finally {
+    state.busy = false
+    render(true)
+  }
+}
+
 async function exportBookingsPdf() {
   const data = state.admin.bookings
   if (!data) return
@@ -1143,6 +1166,10 @@ function onClick(event) {
   }
   if (action === 'export-pdf') {
     exportBookingsPdf()
+    return
+  }
+  if (action === 'sheets-sync') {
+    syncGoogleSheets()
     return
   }
   if (action === 'logout') {

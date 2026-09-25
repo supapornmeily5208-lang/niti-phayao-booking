@@ -14,7 +14,10 @@ import json
 import os
 import re
 import secrets
+import threading
 import traceback
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,9 +28,11 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", str(ROOT / "data")))
 DATA = DATA_DIR / "db.json"
 CATALOG = ROOT / "shared" / "event.json"
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "phayao2569")
+SHEETS_WEBHOOK_URL = os.environ.get("SHEETS_WEBHOOK_URL", "").strip()
 TOKEN = hmac.new(b"niti-phayao-reunion", ADMIN_PASSWORD.encode(), hashlib.sha256).hexdigest()
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 LOCK = __import__("threading").Lock()
+STATUS_TH = {"pending": "รอตรวจสอบ", "confirmed": "ยืนยันแล้ว", "cancelled": "ยกเลิก"}
 
 FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -98,6 +103,80 @@ def to_public(row):
     data = {key: value for key, value in row.items() if key != "slipData"}
     data["hasSlip"] = bool(row.get("slipData"))
     return data
+
+
+def bangkok_now():
+    return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def sheets_row_shirt(row):
+    detail = ", ".join("%sx%s" % (item["size"], item["qty"]) for item in row.get("items") or [])
+    return {
+        "kind": "shirt",
+        "code": row.get("code", ""),
+        "status": STATUS_TH.get(row.get("status"), row.get("status", "")),
+        "name": row.get("name", ""),
+        "phone": row.get("phone", ""),
+        "address": row.get("address", ""),
+        "detail": detail,
+        "total": row.get("total", 0),
+        "hasSlip": bool(row.get("slipData")),
+        "createdAt": row.get("createdAt", ""),
+        "updatedAt": bangkok_now(),
+    }
+
+
+def sheets_row_table(row):
+    return {
+        "kind": "table",
+        "code": row.get("code", ""),
+        "status": STATUS_TH.get(row.get("status"), row.get("status", "")),
+        "name": row.get("hostName", ""),
+        "generation": row.get("generation", ""),
+        "phone": row.get("phone", ""),
+        "address": row.get("address", ""),
+        "tableCount": row.get("tableCount", 0),
+        "seats": row.get("seats", 0),
+        "total": row.get("total", 0),
+        "hasSlip": bool(row.get("slipData")),
+        "createdAt": row.get("createdAt", ""),
+        "updatedAt": bangkok_now(),
+    }
+
+
+def post_sheets(payload):
+    if not SHEETS_WEBHOOK_URL:
+        return False, "ยังไม่ได้ตั้ง SHEETS_WEBHOOK_URL"
+    raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        SHEETS_WEBHOOK_URL,
+        data=raw,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            if resp.status >= 400:
+                return False, body[:200] or ("HTTP %s" % resp.status)
+            return True, body[:200]
+    except urllib.error.HTTPError as err:
+        return False, (err.read().decode("utf-8", errors="replace") or str(err))[:200]
+    except Exception as err:
+        return False, str(err)[:200]
+
+
+def notify_sheets(kind, row):
+    if not SHEETS_WEBHOOK_URL:
+        return
+
+    def run():
+        payload = sheets_row_shirt(row) if kind == "shirt" else sheets_row_table(row)
+        ok, detail = post_sheets(payload)
+        if not ok:
+            print("Google Sheets sync failed: %s" % detail, flush=True)
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 def public_view(db, cat):
@@ -211,6 +290,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/admin/status":
                 self.admin_status(body)
                 return
+            if path == "/api/admin/sheets-sync":
+                self.admin_sheets_sync()
+                return
             self.send_json(404, {"error": "ไม่พบรายการ"})
         except Exception:
             traceback.print_exc()
@@ -282,6 +364,7 @@ class Handler(BaseHTTPRequestHandler):
             }
             db["shirts"].append(order)
             save_db(db)
+        notify_sheets("shirt", order)
         self.send_json(201, {"order": to_public(order)})
 
     def create_table(self, body):
@@ -347,6 +430,7 @@ class Handler(BaseHTTPRequestHandler):
             }
             db["tables"].append(booking)
             save_db(db)
+        notify_sheets("table", booking)
         self.send_json(201, {"booking": to_public(booking)})
 
     def lookup(self, body):
@@ -376,7 +460,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             target["slipData"] = body["slipData"]
             target["slipName"] = clean(body.get("slipName"), 120)
+            kind = "shirt" if str(target.get("code", "")).startswith("SH") else "table"
             save_db(db)
+        notify_sheets(kind, target)
         self.send_json(200, {"ok": True})
 
     def admin_login(self, body):
@@ -404,7 +490,23 @@ class Handler(BaseHTTPRequestHandler):
                 return
             target["status"] = status
             save_db(db)
+        notify_sheets(kind, target)
         self.send_json(200, {"ok": True})
+
+    def admin_sheets_sync(self):
+        if not self.require_admin():
+            self.send_json(401, {"error": "รหัสผู้ดูแลไม่ถูกต้อง"})
+            return
+        if not SHEETS_WEBHOOK_URL:
+            self.send_json(400, {"error": "ยังไม่ได้ตั้งค่า SHEETS_WEBHOOK_URL บนเซิร์ฟเวอร์"})
+            return
+        db = load_db()
+        rows = [sheets_row_shirt(row) for row in db["shirts"]] + [sheets_row_table(row) for row in db["tables"]]
+        ok, detail = post_sheets({"action": "sync", "rows": rows})
+        if not ok:
+            self.send_json(502, {"error": "ส่งไป Google Sheets ไม่สำเร็จ", "detail": detail})
+            return
+        self.send_json(200, {"ok": True, "count": len(rows)})
 
 
 if __name__ == "__main__":
@@ -413,6 +515,10 @@ if __name__ == "__main__":
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not os.environ.get("ADMIN_PASSWORD"):
         print("คำเตือน: ใช้รหัสผู้จัดงานค่าเริ่มต้น ตั้ง ADMIN_PASSWORD ก่อนขึ้นเว็บจริง", flush=True)
+    if SHEETS_WEBHOOK_URL:
+        print("เชื่อม Google Sheets แล้ว", flush=True)
+    else:
+        print("ยังไม่เชื่อม Google Sheets (ตั้ง SHEETS_WEBHOOK_URL เมื่อพร้อม)", flush=True)
     server = ThreadingHTTPServer((host, port), Handler)
     print("เปิดเว็บได้ที่ http://127.0.0.1:%s" % port, flush=True)
     server.serve_forever()

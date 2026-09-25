@@ -11,3 +11,5 @@ services:
         sync: false
       - key: HOST
         value: 0.0.0.0
+      - key: SHEETS_WEBHOOK_URL
+        sync: false
