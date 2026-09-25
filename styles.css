@@ -51,19 +51,27 @@ img, svg { max-width: 100%; }
   border-bottom: 1px solid rgba(231, 211, 161, 0.18);
 }
 .brand { display: flex; gap: 12px; align-items: center; text-decoration: none; }
-.seal {
-  width: 42px;
-  height: 42px;
-  border: 1px solid var(--gold-soft);
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: var(--gold-soft);
-  font-family: var(--serif);
-  font-size: 13px;
+.brand-logo {
+  height: 52px;
+  width: auto;
+  max-width: min(200px, 46vw);
+  object-fit: contain;
+  background: #fff;
+  border-radius: 12px;
+  padding: 4px 8px;
+  display: block;
 }
 .brand strong { display: block; font-family: var(--serif); font-weight: 600; font-size: 16px; line-height: 1.2; }
 .brand small { color: var(--gold-soft); letter-spacing: 0.08em; }
+.hero-logo {
+  display: block;
+  width: min(280px, 70%);
+  height: auto;
+  margin: 0 0 18px;
+  background: #fff;
+  border-radius: 18px;
+  padding: 10px 14px;
+}
 .nav-links { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .nav-links a { text-decoration: none; color: #efe7d8; font-size: 15px; }
 .nav-links a[aria-current="page"] { color: var(--gold-soft); box-shadow: inset 0 -1px 0 var(--gold); }

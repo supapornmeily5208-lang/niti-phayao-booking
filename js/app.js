@@ -185,7 +185,7 @@ function nav() {
   return `
     <header class="nav">
       <a class="brand" href="#/">
-        <span class="seal">นพ</span>
+        <img class="brand-logo" src="/logo.jpg" width="180" height="101" alt="ชมรมศิษย์เก่านิติศาสตร์ มหาวิทยาลัยพะเยา">
         <span><strong>นิติพะเยา คืนสู่เหย้า</strong><small>หุบเขาฝนโปรยไพร</small></span>
       </a>
       <nav class="nav-links">
@@ -227,6 +227,7 @@ function homePage() {
     <section class="hero-band">
       <div class="wrap hero">
         <div>
+          <img class="hero-logo" src="/logo.jpg" width="320" height="180" alt="ชมรมศิษย์เก่านิติศาสตร์ มหาวิทยาลัยพะเยา">
           <p class="eyebrow">${esc(event.faculty)}</p>
           <h1><span>นิติพะเยา</span><span>คืนสู่เหย้า</span></h1>
           <p class="theme">${esc(event.theme)}</p>

@@ -42,6 +42,7 @@ FILES = {
     "/js/payload.js": ("js/payload.js", "text/javascript; charset=utf-8"),
     "/vendor/qrcode.js": ("vendor/qrcode.js", "text/javascript; charset=utf-8"),
     "/favicon.svg": ("public/favicon.svg", "image/svg+xml"),
+    "/logo.jpg": ("public/logo.jpg", "image/jpeg"),
     "/shirt-sample.jpg": ("public/shirt-sample.jpg", "image/jpeg"),
     "/size-chart.jpg": ("public/size-chart.jpg", "image/jpeg"),
 }
