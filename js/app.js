@@ -605,6 +605,7 @@ function adminPage() {
       <div class="filters">
         ${['pending', 'confirmed', 'cancelled', 'all'].map((item) => `<button class="btn btn-line" type="button" data-action="filter" data-filter="${item}" aria-pressed="${state.admin.filter === item}">${item === 'all' ? 'ทั้งหมด' : statusText(item)}</button>`).join('')}
         <button class="btn btn-line" type="button" data-action="export">ส่งออก CSV</button>
+        <button class="btn btn-line" type="button" data-action="export-pdf">ส่งออก PDF</button>
       </div>
       <section class="panel"><h3>เสื้อ</h3>${bookingTable('shirt', data.shirts)}</section>
       <section class="panel" style="margin-top:16px"><h3>โต๊ะ</h3>${bookingTable('table', data.tables)}</section>
@@ -626,7 +627,7 @@ function adminStats(data) {
 }
 
 function bookingTable(kind, rows) {
-  const visible = rows.filter((row) => state.admin.filter === 'all' || row.status === state.admin.filter).slice().reverse()
+  const visible = filteredAdminRows(rows)
   if (!visible.length) return `<p class="fine">ไม่มีรายการในสถานะนี้</p>`
   const body = visible.map((row) => {
     const who = kind === 'shirt' ? row.name : row.hostName
@@ -918,16 +919,137 @@ async function loadAdmin() {
 function exportCsv() {
   const data = state.admin.bookings
   if (!data) return
-  const rows = [['ประเภท', 'รหัส', 'สถานะ', 'ชื่อ', 'รุ่น', 'เบอร์', 'รายการ', 'ยอด', 'หมายเหตุ', 'เวลา']]
-  data.shirts.forEach((row) => rows.push(['เสื้อ', row.code, statusText(row.status), row.name, row.generation, row.phone, row.items.map((item) => `${item.size}x${item.qty}`).join(' '), row.total, row.note, row.createdAt]))
-  data.tables.forEach((row) => rows.push(['โต๊ะ', row.code, statusText(row.status), row.hostName, row.generation, row.phone, `${row.tableCount} โต๊ะ`, row.total, row.note, row.createdAt]))
+  const rows = [['ประเภท', 'รหัส', 'สถานะ', 'ชื่อ', 'รุ่น', 'เบอร์', 'รายการ', 'ยอด', 'ที่อยู่', 'หมายเหตุ', 'เวลา']]
+  filteredAdminRows(data.shirts).forEach((row) => rows.push(['เสื้อ', row.code, statusText(row.status), row.name, row.generation, row.phone, row.items.map((item) => `${item.size}x${item.qty}`).join(' '), row.total, row.address || '', row.note || '', row.createdAt]))
+  filteredAdminRows(data.tables).forEach((row) => rows.push(['โต๊ะ', row.code, statusText(row.status), row.hostName, row.generation, row.phone, `${row.tableCount} โต๊ะ`, row.total, row.address || '', row.note || '', row.createdAt]))
   const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
-  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = 'bookings.csv'
-  link.click()
-  URL.revokeObjectURL(link.href)
+  downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), 'bookings.csv')
+  toast('ส่งออก CSV แล้ว')
+}
+
+function filteredAdminRows(rows) {
+  return rows.filter((row) => state.admin.filter === 'all' || row.status === state.admin.filter).slice().reverse()
+}
+
+function adminPdfLines(data) {
+  const shirts = filteredAdminRows(data.shirts)
+  const tables = filteredAdminRows(data.tables)
+  const filterLabel = state.admin.filter === 'all' ? 'ทั้งหมด' : statusText(state.admin.filter)
+  const lines = [
+    { text: state.catalog.event.faculty, style: 'kicker' },
+    { text: 'รายการจองทั้งหมด', style: 'title' },
+    { text: `${state.catalog.event.name} · ${state.catalog.event.theme}`, style: 'muted' },
+    { text: `สถานะที่ส่งออก: ${filterLabel} · ${when(new Date().toISOString())}`, style: 'muted' },
+    { text: `เสื้อ ${shirts.length} รายการ · โต๊ะ ${tables.length} รายการ`, style: 'body' },
+    { text: '', style: 'gap' },
+    { text: 'เสื้อที่ระลึก', style: 'section' },
+  ]
+  if (!shirts.length) lines.push({ text: 'ไม่มีรายการเสื้อในสถานะนี้', style: 'muted' })
+  shirts.forEach((row) => {
+    lines.push({
+      text: `${row.code} · ${statusText(row.status)} · ${row.name} · ${row.phone}`,
+      style: 'row',
+    })
+    lines.push({
+      text: `${row.items.map((item) => `${item.size}×${item.qty}`).join(' · ')} · ${baht(row.total)}${row.address ? ` · ${row.address}` : ''}`,
+      style: 'detail',
+    })
+  })
+  lines.push({ text: '', style: 'gap' })
+  lines.push({ text: 'โต๊ะจีน', style: 'section' })
+  if (!tables.length) lines.push({ text: 'ไม่มีรายการโต๊ะในสถานะนี้', style: 'muted' })
+  tables.forEach((row) => {
+    lines.push({
+      text: `${row.code} · ${statusText(row.status)} · ${row.hostName} · รุ่น ${row.generation || '-'} · ${row.phone}`,
+      style: 'row',
+    })
+    lines.push({
+      text: `${row.tableCount} โต๊ะ · ${row.seats} ท่าน · ${baht(row.total)}${row.address ? ` · ${row.address}` : ''}`,
+      style: 'detail',
+    })
+  })
+  return lines
+}
+
+async function exportBookingsPdf() {
+  const data = state.admin.bookings
+  if (!data) return
+  try {
+    await document.fonts.ready
+    const content = adminPdfLines(data)
+    const pageWidth = 1240
+    const pageHeight = 1754
+    const margin = 56
+    const pages = []
+    let canvas = document.createElement('canvas')
+    canvas.width = pageWidth
+    canvas.height = pageHeight
+    let ctx = canvas.getContext('2d')
+    let y = 0
+
+    const startPage = () => {
+      canvas = document.createElement('canvas')
+      canvas.width = pageWidth
+      canvas.height = pageHeight
+      ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#f7f3ea'
+      ctx.fillRect(0, 0, pageWidth, pageHeight)
+      ctx.fillStyle = '#10241c'
+      ctx.fillRect(0, 0, pageWidth, 18)
+      y = 70
+    }
+
+    const finishPage = () => {
+      pages.push({
+        jpegBytes: dataUrlToBytes(canvas.toDataURL('image/jpeg', 0.92)),
+        width: pageWidth,
+        height: pageHeight,
+      })
+    }
+
+    const drawLine = (item) => {
+      const styles = {
+        kicker: { font: '600 24px Sarabun, Thonburi, sans-serif', color: '#c6a15b', gap: 34 },
+        title: { font: '600 44px "Noto Serif Thai", Thonburi, serif', color: '#1c2822', gap: 54 },
+        section: { font: '700 30px Sarabun, Thonburi, sans-serif', color: '#10241c', gap: 42 },
+        body: { font: '600 24px Sarabun, Thonburi, sans-serif', color: '#1c2822', gap: 36 },
+        row: { font: '600 24px Sarabun, Thonburi, sans-serif', color: '#1c2822', gap: 32 },
+        detail: { font: '400 22px Sarabun, Thonburi, sans-serif', color: '#5d6b63', gap: 34 },
+        muted: { font: '400 22px Sarabun, Thonburi, sans-serif', color: '#5d6b63', gap: 32 },
+        gap: { font: '400 22px Sarabun, Thonburi, sans-serif', color: '#5d6b63', gap: 24 },
+      }
+      const style = styles[item.style] || styles.body
+      ctx.font = style.font
+      if (!item.text) {
+        y += style.gap
+        return
+      }
+      const wrapped = wrapCanvasText(ctx, item.text, pageWidth - margin * 2)
+      const lineHeight = style.gap - 6
+      if (y + wrapped.length * lineHeight > pageHeight - margin) {
+        finishPage()
+        startPage()
+        ctx.font = style.font
+      }
+      ctx.fillStyle = style.color
+      ctx.textAlign = 'left'
+      wrapped.forEach((line) => {
+        ctx.fillText(line, margin, y)
+        y += lineHeight
+      })
+      y += 10
+    }
+
+    startPage()
+    content.forEach(drawLine)
+    finishPage()
+    const pdf = imagesToPdf(pages)
+    const stamp = new Date().toISOString().slice(0, 10)
+    downloadBlob(new Blob([pdf], { type: 'application/pdf' }), `รายการจอง-${stamp}.pdf`)
+    toast('ส่งออก PDF แล้ว')
+  } catch {
+    toast('ส่งออก PDF ไม่สำเร็จ')
+  }
 }
 
 function onClick(event) {
@@ -1017,6 +1139,10 @@ function onClick(event) {
   }
   if (action === 'export') {
     exportCsv()
+    return
+  }
+  if (action === 'export-pdf') {
+    exportBookingsPdf()
     return
   }
   if (action === 'logout') {
@@ -1135,45 +1261,58 @@ function dataUrlToBytes(dataUrl) {
 }
 
 function jpegToPdf(jpegBytes, pixelWidth, pixelHeight) {
+  return imagesToPdf([{ jpegBytes, width: pixelWidth, height: pixelHeight }])
+}
+
+function imagesToPdf(pages) {
+  if (!pages.length) throw new Error('empty-pdf')
   const pageWidth = 595.28
-  const pageHeight = Math.max(200, pageWidth * (pixelHeight / pixelWidth))
   const encoder = new TextEncoder()
   const parts = []
   const offsets = [0]
   let length = 0
-
   const push = (chunk) => {
     const bytes = typeof chunk === 'string' ? encoder.encode(chunk) : chunk
     parts.push(bytes)
     length += bytes.length
   }
 
+  const kids = pages.map((_, index) => `${3 + index * 3} 0 R`).join(' ')
   push('%PDF-1.4\n')
   offsets.push(length)
   push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n')
   offsets.push(length)
-  push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n')
-  offsets.push(length)
-  push(
-    `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth.toFixed(2)} ${pageHeight.toFixed(2)}] `
-    + '/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n',
-  )
-  offsets.push(length)
-  push(
-    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pixelWidth} /Height ${pixelHeight} `
-    + `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`,
-  )
-  push(jpegBytes)
-  push('\nendstream\nendobj\n')
-  offsets.push(length)
-  const content = `q\n${pageWidth.toFixed(2)} 0 0 ${pageHeight.toFixed(2)} 0 0 cm\n/Im0 Do\nQ\n`
-  push(`5 0 obj\n<< /Length ${encoder.encode(content).length} >>\nstream\n${content}endstream\nendobj\n`)
+  push(`2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>\nendobj\n`)
+
+  pages.forEach((page, index) => {
+    const pageObj = 3 + index * 3
+    const imageObj = pageObj + 1
+    const contentObj = pageObj + 2
+    const pageHeight = Math.max(200, pageWidth * (page.height / page.width))
+    const content = `q\n${pageWidth.toFixed(2)} 0 0 ${pageHeight.toFixed(2)} 0 0 cm\n/Im0 Do\nQ\n`
+    offsets.push(length)
+    push(
+      `${pageObj} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth.toFixed(2)} ${pageHeight.toFixed(2)}] `
+      + `/Resources << /XObject << /Im0 ${imageObj} 0 R >> >> /Contents ${contentObj} 0 R >>\nendobj\n`,
+    )
+    offsets.push(length)
+    push(
+      `${imageObj} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${page.width} /Height ${page.height} `
+      + `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${page.jpegBytes.length} >>\nstream\n`,
+    )
+    push(page.jpegBytes)
+    push('\nendstream\nendobj\n')
+    offsets.push(length)
+    push(`${contentObj} 0 obj\n<< /Length ${encoder.encode(content).length} >>\nstream\n${content}endstream\nendobj\n`)
+  })
+
   const xrefStart = length
-  push(`xref\n0 6\n0000000000 65535 f \n`)
-  for (let i = 1; i <= 5; i += 1) {
+  const objectCount = 2 + pages.length * 3
+  push(`xref\n0 ${objectCount + 1}\n0000000000 65535 f \n`)
+  for (let i = 1; i <= objectCount; i += 1) {
     push(`${String(offsets[i]).padStart(10, '0')} 00000 n \n`)
   }
-  push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`)
+  push(`trailer\n<< /Size ${objectCount + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`)
 
   const pdf = new Uint8Array(length)
   let offset = 0
