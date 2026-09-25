@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: niti-phayao-booking
+    runtime: python
+    plan: free
+    buildCommand: "true"
+    startCommand: python3 -u server.py
+    healthCheckPath: /api/health
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: HOST
+        value: 0.0.0.0
