@@ -52,7 +52,8 @@ function upsert_(ss, row) {
     sheet.appendRow(values)
     return
   }
-  var codes = sheet.getRange(2, 2, last, 2).getValues()
+  // getRange(row, column, numRows, numColumns) — พารามิเตอร์ที่ 3/4 คือจำนวนแถว/คอลัมน์
+  var codes = sheet.getRange(2, 2, last - 1, 1).getValues()
   var found = -1
   for (var i = 0; i < codes.length; i++) {
     if (String(codes[i][0]) === String(row.code)) {
@@ -60,10 +61,9 @@ function upsert_(ss, row) {
       break
     }
   }
-  if (found > 0) sheet.getRange(found, 1, found, values.length).setValues([values])
+  if (found > 0) sheet.getRange(found, 1, 1, values.length).setValues([values])
   else sheet.appendRow(values)
-}
-function ensureSheet_(ss, name, headers) {
+}function ensureSheet_(ss, name, headers) {
   var sheet = ss.getSheetByName(name)
   if (!sheet) sheet = ss.insertSheet(name)
   var first = sheet.getRange(1, 1, 1, headers.length).getValues()[0]
