@@ -228,7 +228,7 @@ dd { margin: 0; }
 .slip-btn input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .receipt { background: white; border: 1px solid var(--line); border-radius: 18px; padding: 28px 22px; }
 .receipt-head { text-align: center; border-bottom: 1px dashed #d9d0c0; margin-bottom: 16px; padding-bottom: 8px; }
-.receipt .code { margin: 8px 0; }
+.receipt .code { margin: 8px 0; font-size: 32px; letter-spacing: 0.14em; font-weight: 700; }
 .receipt-items { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; }
 body.modal-open { overflow: hidden; }
 .field { display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px; }

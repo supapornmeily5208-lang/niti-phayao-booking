@@ -64,17 +64,20 @@ def clean(value, limit):
 
 
 def phone_of(value):
-    return re.sub(r"\D", "", str(value or ""))
+    digits = re.sub(r"\D", "", str(value or ""))
+    if digits.startswith("66") and len(digits) >= 11:
+        digits = "0" + digits[2:]
+    return digits
 
 
 def valid_phone(value):
     return re.fullmatch(r"0\d{8,9}", value) is not None
 
 
-def valid_slip(data):
+def valid_slip(data, required=False):
     if not data:
-        return True
-    if not isinstance(data, str) or len(data) > 1_800_000:
+        return not required
+    if not isinstance(data, str) or len(data) > 2_400_000:
         return False
     return re.fullmatch(r"data:image/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+", data) is not None
 
@@ -289,7 +292,7 @@ class Handler(BaseHTTPRequestHandler):
         host = clean(body.get("hostName"), 80)
         phone = phone_of(body.get("phone"))
         generation = re.sub(r"\D", "", clean(body.get("generation"), 40))
-        if len(generation) >= 7:
+        if len(generation) >= 2:
             generation = generation[:2]
         if not re.fullmatch(r"\d{2}", generation):
             self.send_json(400, {"error": "ระบุรุ่น 2 หลักแรกของรหัสนิสิต เช่น 51"})
@@ -308,7 +311,10 @@ class Handler(BaseHTTPRequestHandler):
         if count is None:
             self.send_json(400, {"error": "จำนวนโต๊ะไม่ถูกต้อง"})
             return
-        if not valid_slip(body.get("slipData")):
+        if not body.get("slipData"):
+            self.send_json(400, {"error": "กรุณาแนบรูปสลิปก่อนยืนยันการชำระเงิน"})
+            return
+        if not valid_slip(body.get("slipData"), required=True):
             self.send_json(400, {"error": "ไฟล์สลิปต้องเป็นรูปภาพขนาดไม่เกิน 1.5 MB"})
             return
         with LOCK:

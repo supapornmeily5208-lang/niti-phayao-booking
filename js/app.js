@@ -78,8 +78,16 @@ function digits(value) {
   return String(value ?? '').replace(/\D/g, '')
 }
 
+function phoneDigits(value) {
+  let valueDigits = digits(value)
+  if (valueDigits.startsWith('66') && valueDigits.length >= 11) {
+    valueDigits = `0${valueDigits.slice(2)}`
+  }
+  return valueDigits
+}
+
 function validPhone(value) {
-  return /^0\d{8,9}$/.test(digits(value))
+  return /^0\d{8,9}$/.test(phoneDigits(value))
 }
 
 function daysUntil(iso) {
@@ -240,10 +248,10 @@ function homePage() {
         <section class="section">
           <h2 class="section-title">ลำดับการจอง</h2>
           <ol class="steps">
-            <li><strong>เลือก</strong>เสื้อตามขนาด หรือจำนวนโต๊ะจีน</li>
-            <li><strong>กรอก</strong>ชื่อ รุ่น และเบอร์โทร</li>
+            <li><strong>กรอก</strong>ชื่อ เบอร์โทร และที่อยู่</li>
+            <li><strong>เลือก</strong>ไซส์เสื้อหรือจำนวนโต๊ะจีน</li>
             <li><strong>สแกน</strong>คิวอาร์กรุงไทย แล้วตรวจชื่อบัญชีก่อนโอน</li>
-            <li><strong>เก็บรหัส</strong>แล้วแนบสลิปให้ผู้จัดงานตรวจสอบ</li>
+            <li><strong>แนบสลิป</strong>ยืนยันการชำระ แล้วเก็บใบยืนยันการจอง</li>
           </ol>
         </section>
       </div>
@@ -301,31 +309,8 @@ function deadlineBanner(open, label, noun) {
   return `<p class="alert ok">เปิดให้จองถึงวันที่ ${esc(label)}</p>`
 }
 
-function personFields(group) {
-  const data = state[group]
-  const nameKey = group === 'table' ? 'hostName' : 'name'
-  const generations = state.catalog.generations.map((item) => `<option value="${esc(item)}"></option>`).join('')
-  return `
-    ${field(group === 'table' ? 'ชื่อเจ้าภาพ' : 'ชื่อ-นามสกุล', `<input id="${group}-name" data-bind="${group}.${nameKey}" value="${esc(data[nameKey])}" autocomplete="name" required>`)}
-    ${field('ชื่อเล่น', `<input id="${group}-nickname" data-bind="${group}.nickname" value="${esc(data.nickname)}">`, 'ไม่บังคับ')}
-    ${field('รุ่น', `<input id="${group}-generation" list="generations" data-bind="${group}.generation" value="${esc(data.generation)}" required><datalist id="generations">${generations}</datalist>`)}
-    ${field('เบอร์โทร', `<input id="${group}-phone" data-bind="${group}.phone" value="${esc(data.phone)}" inputmode="tel" autocomplete="tel" required>`)}
-    ${field('ไลน์ไอดี', `<input id="${group}-line" data-bind="${group}.lineId" value="${esc(data.lineId)}">`, 'ไม่บังคับ')}`
-}
-
 function field(label, control, hint) {
   return `<label class="field"><span>${label}</span>${control}${hint ? `<small>${hint}</small>` : ''}</label>`
-}
-
-function slipField(group) {
-  const data = state[group]
-  return `
-    <label class="field">
-      <span>สลิปโอนเงิน</span>
-      <input id="${group}-slip" type="file" accept="image/png,image/jpeg,image/webp" data-file="${group}">
-      <small>แนบได้ภายหลังในหน้าตรวจสอบการจอง ไฟล์รูปไม่เกิน 1.5 MB</small>
-    </label>
-    ${data.slipData ? `<p>แนบแล้ว: ${esc(data.slipName)}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(data.slipData)}"><p><button class="btn btn-line" type="button" data-action="clear-slip" data-group="${group}">เอาสลิปออก</button></p>` : ''}`
 }
 
 function shirtsPage() {
@@ -378,7 +363,7 @@ function shirtSizeStep() {
   const pieces = lines.reduce((sum, [, qty]) => sum + qty, 0)
   return `
     <form class="panel" data-form="shirt-sizes">
-      <p class="fine">${esc(form.name)} · ${esc(digits(form.phone))}<br>${esc(form.address)}</p>
+      <p class="fine">${esc(form.name)} · ${esc(phoneDigits(form.phone))}<br>${esc(form.address)}</p>
       <p><button class="btn btn-line" type="button" data-action="shirt-back">แก้ไขข้อมูลผู้จอง</button></p>
       <div class="size-list">
         ${shirt.sizes.map((size) => {
@@ -488,6 +473,7 @@ function bookingReceipt(kind, order) {
       </article>
       <div class="row-actions no-print">
         <button class="btn btn-dark" type="button" data-action="save-receipt" data-kind="${kind}">บันทึกรูปภาพ</button>
+        <button class="btn btn-dark" type="button" data-action="save-receipt-pdf" data-kind="${kind}">บันทึก PDF</button>
         <button class="btn btn-line" type="button" data-action="print">พิมพ์ใบยืนยัน</button>
         <button class="btn btn-line" type="button" data-action="copy" data-value="${esc(order.code)}">คัดลอกรหัส</button>
         <button class="btn btn-line" type="button" data-action="again" data-kind="${kind}">จองรายการใหม่</button>
@@ -512,8 +498,8 @@ function tablesPage() {
       <form class="panel" data-form="table">
         ${field('ชื่อ-นามสกุล', `<input id="table-name" data-bind="table.hostName" value="${esc(form.hostName)}" autocomplete="name" required>`)}
         ${field('เบอร์โทร', `<input id="table-phone" data-bind="table.phone" value="${esc(form.phone)}" inputmode="tel" autocomplete="tel" required>`)}
-        ${field('ที่อยู่', `<textarea id="table-address" data-bind="table.address" required>${esc(form.address)}</textarea>`)}
-        ${field('รุ่นปี / รหัสนิสิต *', `<input id="table-generation" data-bind="table.generation" value="${esc(form.generation)}" inputmode="numeric" required>`, 'รหัส 5103123 ให้ระบุ 51 และรหัส 5203123 ให้ระบุ 52')}
+        ${field('ที่อยู่', `<textarea id="table-address" data-bind="table.address" required>${esc(form.address)}</textarea>`, 'ใช้ติดต่อและยืนยันการจอง')}
+        ${field('รุ่นปี / รหัสนิสิต *', `<input id="table-generation" data-bind="table.generation" value="${esc(form.generation)}" inputmode="numeric" required>`, 'ใส่ 2 หลักแรกของรหัสนิสิต เช่น 5103123 → 51 หรือ 5203123 → 52')}
         <label class="field"><span>จำนวนโต๊ะ</span>
           <span class="stepper">
             <button type="button" data-action="tables" data-dir="-1" aria-label="ลดจำนวนโต๊ะ">−</button>
@@ -724,18 +710,46 @@ function bindValue(el) {
 
 function readSlip(file, apply) {
   if (!file) return
-  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+  if (!/^image\/(png|jpeg|webp)$/.test(file.type) && !/\.(png|jpe?g|webp)$/i.test(file.name || '')) {
     state.error = 'รองรับเฉพาะไฟล์ PNG, JPG หรือ WEBP'
     render(true)
     return
   }
-  if (file.size > 1_500_000) {
-    state.error = 'ไฟล์สลิปต้องไม่เกิน 1.5 MB'
-    render(true)
-    return
-  }
   const reader = new FileReader()
-  reader.onload = () => apply(String(reader.result), file.name)
+  reader.onerror = () => {
+    state.error = 'อ่านไฟล์สลิปไม่สำเร็จ'
+    render(true)
+  }
+  reader.onload = () => {
+    const source = new Image()
+    source.onload = () => {
+      const maxSide = 1600
+      const scale = Math.min(1, maxSide / Math.max(source.width, source.height))
+      const width = Math.max(1, Math.round(source.width * scale))
+      const height = Math.max(1, Math.round(source.height * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      canvas.getContext('2d').drawImage(source, 0, 0, width, height)
+      let quality = 0.88
+      let dataUrl = canvas.toDataURL('image/jpeg', quality)
+      while (dataUrl.length > 1_800_000 && quality > 0.5) {
+        quality -= 0.08
+        dataUrl = canvas.toDataURL('image/jpeg', quality)
+      }
+      if (dataUrl.length > 2_200_000) {
+        state.error = 'ไฟล์สลิปใหญ่เกินไป กรุณาเลือกรูปที่ชัดขึ้นแต่ขนาดเล็กลง'
+        render(true)
+        return
+      }
+      apply(dataUrl, (file.name || 'slip').replace(/\.\w+$/, '') + '.jpg')
+    }
+    source.onerror = () => {
+      state.error = 'เปิดรูปสลิปไม่สำเร็จ'
+      render(true)
+    }
+    source.src = String(reader.result)
+  }
   reader.readAsDataURL(file)
 }
 
@@ -757,7 +771,7 @@ async function placeShirtOrder() {
       method: 'POST',
       body: JSON.stringify({
         name: form.name,
-        phone: digits(form.phone),
+        phone: phoneDigits(form.phone),
         address: form.address,
         items,
         slipData: form.slipData,
@@ -802,8 +816,7 @@ function openShirtPay(event) {
 
 function cohortFromId(value) {
   const numbers = digits(value)
-  if (numbers.length === 2) return numbers
-  if (numbers.length >= 7) return numbers.slice(0, 2)
+  if (numbers.length >= 2) return numbers.slice(0, 2)
   return ''
 }
 
@@ -839,7 +852,7 @@ async function placeTableOrder() {
       body: JSON.stringify({
         hostName: form.hostName,
         generation: form.generation,
-        phone: digits(form.phone),
+        phone: phoneDigits(form.phone),
         address: form.address,
         tableCount: form.count,
         slipData: form.slipData,
@@ -862,12 +875,13 @@ async function placeTableOrder() {
 
 async function submitLookup(event) {
   event.preventDefault()
+  document.querySelectorAll('[data-bind^="lookup."]').forEach(bindValue)
   if (!validPhone(state.lookup.phone)) return fail('กรุณากรอกเบอร์โทรให้ถูกต้อง')
   state.error = ''
   try {
     const data = await api('/api/lookup', {
       method: 'POST',
-      body: JSON.stringify({ phone: digits(state.lookup.phone) }),
+      body: JSON.stringify({ phone: phoneDigits(state.lookup.phone) }),
     })
     state.lookup.shirts = data.shirts
     state.lookup.tables = data.tables
@@ -879,6 +893,7 @@ async function submitLookup(event) {
 
 async function submitAdmin(event) {
   event.preventDefault()
+  document.querySelectorAll('[data-bind^="admin."]').forEach(bindValue)
   try {
     const data = await api('/api/admin/login', {
       method: 'POST',
@@ -965,6 +980,10 @@ function onClick(event) {
     saveReceiptImage(el.dataset.kind)
     return
   }
+  if (action === 'save-receipt-pdf') {
+    saveReceiptPdf(el.dataset.kind)
+    return
+  }
   if (action === 'confirm-transfer') {
     placeShirtOrder()
     return
@@ -1034,81 +1053,152 @@ function wrapCanvasText(ctx, text, maxWidth) {
   return lines.length ? lines : ['']
 }
 
-async function saveReceiptImage(kind) {
+async function buildReceiptCanvas(kind) {
   const order = state[kind] && state[kind].success
-  if (!order) return
+  if (!order) return null
+  await document.fonts.ready
+  const model = receiptModel(kind, order)
+  const canvas = document.createElement('canvas')
+  const width = 900
+  const ctx = canvas.getContext('2d')
+  ctx.font = '400 28px Sarabun, Thonburi, sans-serif'
+  const fieldLines = model.fields.flatMap(([label, value]) => {
+    const wrapped = wrapCanvasText(ctx, value, 760)
+    return [[label, wrapped[0]], ...wrapped.slice(1).map((line) => ['', line])]
+  })
+  const height = 250 + fieldLines.length * 46 + model.lines.length * 52 + 120
+  canvas.width = width * 2
+  canvas.height = height * 2
+  ctx.scale(2, 2)
+  ctx.fillStyle = '#f7f3ea'
+  ctx.fillRect(0, 0, width, height)
+  ctx.fillStyle = '#10241c'
+  ctx.fillRect(0, 0, width, 16)
+  ctx.fillStyle = '#c6a15b'
+  ctx.font = '600 22px Sarabun, Thonburi, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText(model.eventLine, width / 2, 70)
+  ctx.fillStyle = '#1c2822'
+  ctx.font = '600 42px "Noto Serif Thai", Thonburi, serif'
+  ctx.fillText(model.title, width / 2, 126)
+  ctx.font = '400 22px Sarabun, Thonburi, sans-serif'
+  ctx.fillStyle = '#5d6b63'
+  ctx.fillText(model.themeLine, width / 2, 164)
+  ctx.fillStyle = '#1c2822'
+  ctx.font = '700 40px Sarabun, Thonburi, sans-serif'
+  ctx.fillText(model.code, width / 2, 220)
+  ctx.strokeStyle = '#d9d0c0'
+  ctx.beginPath()
+  ctx.moveTo(48, 248)
+  ctx.lineTo(width - 48, 248)
+  ctx.stroke()
+  ctx.textAlign = 'left'
+  ctx.font = '400 26px Sarabun, Thonburi, sans-serif'
+  let y = 300
+  fieldLines.forEach(([label, value]) => {
+    ctx.fillStyle = '#5d6b63'
+    ctx.fillText(label, 56, y)
+    ctx.fillStyle = '#1c2822'
+    ctx.fillText(value, 220, y)
+    y += 46
+  })
+  y += 8
+  ctx.beginPath()
+  ctx.moveTo(48, y)
+  ctx.lineTo(width - 48, y)
+  ctx.stroke()
+  y += 48
+  model.lines.forEach(([label, value], index) => {
+    ctx.fillStyle = '#1c2822'
+    ctx.font = index === model.lines.length - 1 ? '700 28px Sarabun, Thonburi, sans-serif' : '400 26px Sarabun, Thonburi, sans-serif'
+    ctx.textAlign = 'left'
+    ctx.fillText(label, 56, y)
+    ctx.textAlign = 'right'
+    ctx.fillText(value, width - 56, y)
+    y += 52
+  })
+  ctx.textAlign = 'left'
+  ctx.font = '400 22px Sarabun, Thonburi, sans-serif'
+  ctx.fillStyle = '#5d6b63'
+  wrapCanvasText(ctx, model.note, 780).forEach((line) => {
+    y += 36
+    ctx.fillText(line, 56, y)
+  })
+  return { canvas, model, width, height }
+}
+
+function dataUrlToBytes(dataUrl) {
+  const raw = atob(dataUrl.split(',')[1] || '')
+  const bytes = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i)
+  return bytes
+}
+
+function jpegToPdf(jpegBytes, pixelWidth, pixelHeight) {
+  const pageWidth = 595.28
+  const pageHeight = Math.max(200, pageWidth * (pixelHeight / pixelWidth))
+  const encoder = new TextEncoder()
+  const parts = []
+  const offsets = [0]
+  let length = 0
+
+  const push = (chunk) => {
+    const bytes = typeof chunk === 'string' ? encoder.encode(chunk) : chunk
+    parts.push(bytes)
+    length += bytes.length
+  }
+
+  push('%PDF-1.4\n')
+  offsets.push(length)
+  push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n')
+  offsets.push(length)
+  push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n')
+  offsets.push(length)
+  push(
+    `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth.toFixed(2)} ${pageHeight.toFixed(2)}] `
+    + '/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n',
+  )
+  offsets.push(length)
+  push(
+    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pixelWidth} /Height ${pixelHeight} `
+    + `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`,
+  )
+  push(jpegBytes)
+  push('\nendstream\nendobj\n')
+  offsets.push(length)
+  const content = `q\n${pageWidth.toFixed(2)} 0 0 ${pageHeight.toFixed(2)} 0 0 cm\n/Im0 Do\nQ\n`
+  push(`5 0 obj\n<< /Length ${encoder.encode(content).length} >>\nstream\n${content}endstream\nendobj\n`)
+  const xrefStart = length
+  push(`xref\n0 6\n0000000000 65535 f \n`)
+  for (let i = 1; i <= 5; i += 1) {
+    push(`${String(offsets[i]).padStart(10, '0')} 00000 n \n`)
+  }
+  push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`)
+
+  const pdf = new Uint8Array(length)
+  let offset = 0
+  parts.forEach((part) => {
+    pdf.set(part, offset)
+    offset += part.length
+  })
+  return pdf
+}
+
+function downloadBlob(blob, filename) {
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+async function saveReceiptImage(kind) {
   try {
-    await document.fonts.ready
-    const model = receiptModel(kind, order)
-    const canvas = document.createElement('canvas')
-    const width = 900
-    const ctx = canvas.getContext('2d')
-    ctx.font = '400 28px Sarabun, Thonburi, sans-serif'
-    const fieldLines = model.fields.flatMap(([label, value]) => {
-      const wrapped = wrapCanvasText(ctx, value, 760)
-      return [[label, wrapped[0]], ...wrapped.slice(1).map((line) => ['', line])]
-    })
-    const height = 250 + fieldLines.length * 46 + model.lines.length * 52 + 120
-    canvas.width = width * 2
-    canvas.height = height * 2
-    ctx.scale(2, 2)
-    ctx.fillStyle = '#f7f3ea'
-    ctx.fillRect(0, 0, width, height)
-    ctx.fillStyle = '#10241c'
-    ctx.fillRect(0, 0, width, 16)
-    ctx.fillStyle = '#c6a15b'
-    ctx.font = '600 22px Sarabun, Thonburi, sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText(model.eventLine, width / 2, 70)
-    ctx.fillStyle = '#1c2822'
-    ctx.font = '600 42px "Noto Serif Thai", Thonburi, serif'
-    ctx.fillText(model.title, width / 2, 126)
-    ctx.font = '400 22px Sarabun, Thonburi, sans-serif'
-    ctx.fillStyle = '#5d6b63'
-    ctx.fillText(model.themeLine, width / 2, 164)
-    ctx.fillStyle = '#1c2822'
-    ctx.font = '700 40px Sarabun, Thonburi, sans-serif'
-    ctx.fillText(model.code, width / 2, 220)
-    ctx.strokeStyle = '#d9d0c0'
-    ctx.beginPath()
-    ctx.moveTo(48, 248)
-    ctx.lineTo(width - 48, 248)
-    ctx.stroke()
-    ctx.textAlign = 'left'
-    ctx.font = '400 26px Sarabun, Thonburi, sans-serif'
-    let y = 300
-    fieldLines.forEach(([label, value]) => {
-      ctx.fillStyle = '#5d6b63'
-      ctx.fillText(label, 56, y)
-      ctx.fillStyle = '#1c2822'
-      ctx.fillText(value, 220, y)
-      y += 46
-    })
-    y += 8
-    ctx.beginPath()
-    ctx.moveTo(48, y)
-    ctx.lineTo(width - 48, y)
-    ctx.stroke()
-    y += 48
-    model.lines.forEach(([label, value], index) => {
-      ctx.fillStyle = '#1c2822'
-      ctx.font = index === model.lines.length - 1 ? '700 28px Sarabun, Thonburi, sans-serif' : '400 26px Sarabun, Thonburi, sans-serif'
-      ctx.textAlign = 'left'
-      ctx.fillText(label, 56, y)
-      ctx.textAlign = 'right'
-      ctx.fillText(value, width - 56, y)
-      y += 52
-    })
-    ctx.textAlign = 'left'
-    ctx.font = '400 22px Sarabun, Thonburi, sans-serif'
-    ctx.fillStyle = '#5d6b63'
-    wrapCanvasText(ctx, model.note, 780).forEach((line) => {
-      y += 36
-      ctx.fillText(line, 56, y)
-    })
+    const built = await buildReceiptCanvas(kind)
+    if (!built) return
     const link = document.createElement('a')
-    link.href = canvas.toDataURL('image/png')
-    link.download = `ใบยืนยัน-${model.code}.png`
+    link.href = built.canvas.toDataURL('image/png')
+    link.download = `ใบยืนยัน-${built.model.code}.png`
     link.click()
     toast('บันทึกรูปใบยืนยันแล้ว')
   } catch {
@@ -1116,10 +1206,24 @@ async function saveReceiptImage(kind) {
   }
 }
 
+async function saveReceiptPdf(kind) {
+  try {
+    const built = await buildReceiptCanvas(kind)
+    if (!built) return
+    const jpeg = dataUrlToBytes(built.canvas.toDataURL('image/jpeg', 0.92))
+    const pdf = jpegToPdf(jpeg, built.canvas.width, built.canvas.height)
+    downloadBlob(new Blob([pdf], { type: 'application/pdf' }), `ใบยืนยัน-${built.model.code}.pdf`)
+    toast('บันทึก PDF ใบยืนยันแล้ว')
+  } catch {
+    toast('บันทึก PDF ไม่สำเร็จ')
+  }
+}
+
 function onInput(event) {
   const el = event.target
   if (el.dataset.qtySize) {
     setShirtQty(el.dataset.qtySize, el.value)
+    render(true)
     return
   }
   if (!el.dataset.bind || el.type === 'checkbox' || el.type === 'radio') return
@@ -1147,13 +1251,13 @@ function onChange(event) {
           method: 'POST',
           body: JSON.stringify({
             code: el.dataset.slipCode,
-            phone: digits(state.lookup.phone),
+            phone: phoneDigits(state.lookup.phone),
             slipData,
             slipName,
           }),
         })
         toast('แนบสลิปแล้ว')
-        const data = await api('/api/lookup', { method: 'POST', body: JSON.stringify({ phone: digits(state.lookup.phone) }) })
+        const data = await api('/api/lookup', { method: 'POST', body: JSON.stringify({ phone: phoneDigits(state.lookup.phone) }) })
         state.lookup.shirts = data.shirts
         state.lookup.tables = data.tables
         render(true)
