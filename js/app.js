@@ -255,7 +255,7 @@ function homePage() {
             <li><strong>กรอก</strong>ชื่อ เบอร์โทร และที่อยู่</li>
             <li><strong>เลือก</strong>ไซส์เสื้อหรือจำนวนโต๊ะจีน</li>
             <li><strong>สแกน</strong>คิวอาร์กรุงไทย แล้วตรวจชื่อบัญชีก่อนโอน</li>
-            <li><strong>แนบสลิป</strong>ยืนยันการชำระ แล้วเก็บใบยืนยันการจอง</li>
+            <li><strong>แนบสลิป</strong>หลังโอนเงิน แล้วกดยืนยันเพื่อรับใบจอง</li>
           </ol>
         </section>
       </div>
@@ -391,6 +391,7 @@ function shirtSizeStep() {
 function shirtPayModal() {
   const total = shirtTotal()
   const lines = shirtLines()
+  const ready = Boolean(state.shirt.slipData) && !state.busy
   return `
     <div class="modal-back">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pay-title">
@@ -403,9 +404,9 @@ function shirtPayModal() {
           ${state.shirt.slipData ? 'เปลี่ยนสลิป' : 'แนบสลิป'}
           <input type="file" accept="image/png,image/jpeg,image/webp" data-file="shirt">
         </label>
-        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}${state.shirt.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ไม่พบคิวอาร์บนสลิป จะรอตรวจมือ'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">แนบสลิปได้ก่อนกดยืนยันการโอน</p>'}
+        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}${state.shirt.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ไม่พบคิวอาร์บนสลิป จะรอตรวจมือ'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิป ก่อนกดยืนยันการโอน</p>'}
         <div class="row-actions">
-          <button class="btn btn-dark" type="button" data-action="confirm-transfer"${state.busy ? ' disabled' : ''}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการโอน'}</button>
+          <button class="btn btn-dark" type="button" data-action="confirm-transfer"${ready ? '' : ' disabled'}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการโอน'}</button>
           <button class="btn btn-line" type="button" data-action="close-pay">กลับไปแก้รายการ</button>
         </div>
       </div>
@@ -797,6 +798,12 @@ async function placeShirtOrder() {
   const form = state.shirt
   const items = shirtLines().map(([size, qty]) => ({ size, qty }))
   if (!items.length) return fail('กรุณาเลือกไซส์และจำนวนเสื้อ')
+  if (!form.slipData) {
+    state.error = 'กรุณาแนบรูปสลิปก่อนยืนยันการโอน'
+    state.shirt.payOpen = true
+    render(true)
+    return
+  }
   state.busy = true
   state.error = ''
   render(true)

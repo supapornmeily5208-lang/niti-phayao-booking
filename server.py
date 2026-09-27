@@ -443,7 +443,10 @@ class Handler(BaseHTTPRequestHandler):
         if not items or len(items) > 12:
             self.send_json(400, {"error": "กรุณาเลือกขนาดเสื้อ"})
             return
-        if not valid_slip(body.get("slipData")):
+        if not body.get("slipData"):
+            self.send_json(400, {"error": "กรุณาแนบรูปสลิปก่อนยืนยันการโอน"})
+            return
+        if not valid_slip(body.get("slipData"), required=True):
             self.send_json(400, {"error": "ไฟล์สลิปต้องเป็นรูปภาพขนาดไม่เกิน 1.5 MB"})
             return
         address = clean(body.get("address"), 300)
