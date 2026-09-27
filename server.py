@@ -41,6 +41,7 @@ FILES = {
     "/js/app.js": ("js/app.js", "text/javascript; charset=utf-8"),
     "/js/payload.js": ("js/payload.js", "text/javascript; charset=utf-8"),
     "/vendor/qrcode.js": ("vendor/qrcode.js", "text/javascript; charset=utf-8"),
+    "/vendor/jsqr.js": ("vendor/jsqr.js", "text/javascript; charset=utf-8"),
     "/favicon.svg": ("public/favicon.svg", "image/svg+xml"),
     "/logo.jpg": ("public/logo.jpg", "image/jpeg"),
     "/shirt-sample.jpg": ("public/shirt-sample.jpg", "image/jpeg"),
@@ -80,12 +81,129 @@ def valid_phone(value):
     return re.fullmatch(r"0\d{8,9}", value) is not None
 
 
-def valid_slip(data, required=False):
-    if not data:
-        return not required
-    if not isinstance(data, str) or len(data) > 2_400_000:
-        return False
-    return re.fullmatch(r"data:image/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+", data) is not None
+def crc16(payload):
+    crc = 0xFFFF
+    for ch in payload:
+        crc ^= ord(ch) << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            else:
+                crc = (crc << 1) & 0xFFFF
+    return "%04X" % crc
+
+
+def parse_tlv(data):
+    result = {}
+    i = 0
+    while i + 4 <= len(data):
+        tag = data[i : i + 2]
+        try:
+            length = int(data[i + 2 : i + 4])
+        except ValueError:
+            break
+        if i + 4 + length > len(data):
+            break
+        value = data[i + 4 : i + 4 + length]
+        result[tag] = value
+        i += 4 + length
+    return result
+
+
+def verify_slip_qr(qr_text, expected_amount, payment):
+    """ตรวจคิวอาร์บนสลิปเทียบยอดและเลขบัญชีจาก event.json"""
+    text = str(qr_text or "").strip()
+    account = re.sub(r"\D", "", str(payment.get("accountNumber") or ""))
+    bank_code = re.sub(r"\D", "", str(payment.get("bankCode") or ""))
+    prompt_pay = re.sub(r"\D", "", str(payment.get("promptPay") or ""))
+    result = {
+        "ok": False,
+        "autoConfirm": False,
+        "method": "",
+        "reason": "",
+        "amount": None,
+        "checkedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    if not text:
+        result["reason"] = "ไม่พบคิวอาร์บนรูปสลิป รอผู้จัดงานตรวจเอง"
+        return result
+
+    digits = re.sub(r"\D", "", text)
+    amount = None
+    crc_ok = None
+    emv = text.startswith("000201") or (len(text) >= 8 and text[-8:-4] == "6304")
+
+    if emv and len(text) >= 8 and text[-8:-4] == "6304":
+        crc_ok = crc16(text[:-4]) == text[-4:].upper()
+        tags = parse_tlv(text[:-8])
+        if "54" in tags:
+            try:
+                amount = float(tags["54"])
+            except ValueError:
+                amount = None
+        result["method"] = "emv-qr"
+    else:
+        result["method"] = "qr-text"
+        money = re.search(r"(?<!\d)(\d+\.\d{2})(?!\d)", text)
+        if money:
+            try:
+                amount = float(money.group(1))
+            except ValueError:
+                amount = None
+
+    result["amount"] = amount
+    expected = float(expected_amount or 0)
+    amount_ok = amount is not None and abs(amount - expected) < 0.009
+
+    account_ok = False
+    if account:
+        if account in digits or account[-6:] in digits or account[-4:] in digits:
+            account_ok = True
+        if bank_code and (bank_code + account) in digits:
+            account_ok = True
+    if prompt_pay and prompt_pay in digits:
+        account_ok = True
+    if prompt_pay and len(prompt_pay) >= 9:
+        # mobile PromptPay often encoded as 0066xxxxxxxxx
+        mobile = "0066" + prompt_pay.lstrip("0")
+        if mobile in digits:
+            account_ok = True
+
+    if crc_ok is False:
+        result["reason"] = "คิวอาร์บนสลิปไม่สมบูรณ์ รอผู้จัดงานตรวจเอง"
+        return result
+
+    if amount_ok and account_ok:
+        result["ok"] = True
+        result["autoConfirm"] = True
+        result["reason"] = "คิวอาร์สลิปตรงยอดและบัญชีปลายทาง"
+        return result
+
+    if amount_ok:
+        result["ok"] = True
+        result["autoConfirm"] = False
+        result["reason"] = "ยอดในคิวอาร์ตรง แต่ตรวจบัญชีไม่ชัด รอผู้จัดงานยืนยัน"
+        return result
+
+    if account_ok and amount is None:
+        result["reason"] = "พบบัญชีปลายทางในคิวอาร์ แต่ไม่มียอด รอผู้จัดงานตรวจเอง"
+        return result
+
+    if amount is not None and not amount_ok:
+        result["reason"] = "ยอดในสลิปไม่ตรงกับยอดจอง (พบ %s บาท) รอผู้จัดงานตรวจเอง" % amount
+        return result
+
+    result["reason"] = "อ่านคิวอาร์บนสลิปได้ แต่ข้อมูลไม่เพียงพอ รอผู้จัดงานตรวจเอง"
+    return result
+
+
+def apply_slip_check(row, body, cat):
+    payment = cat.get("payment") or {}
+    check = verify_slip_qr(body.get("slipQr"), row.get("total"), payment)
+    row["slipCheck"] = check
+    if check.get("autoConfirm") and row.get("status") != "cancelled":
+        row["status"] = "confirmed"
+    return check
 
 
 def is_open(day):
@@ -122,6 +240,10 @@ def sheets_row_shirt(row):
         "detail": detail,
         "total": row.get("total", 0),
         "hasSlip": bool(row.get("slipData")),
+        "slipStatus": (
+            "ผ่านอัตโนมัติ" if (row.get("slipCheck") or {}).get("autoConfirm")
+            else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if row.get("slipData") else "ไม่มีสลิป"))
+        ),
         "createdAt": row.get("createdAt", ""),
         "updatedAt": bangkok_now(),
     }
@@ -140,6 +262,10 @@ def sheets_row_table(row):
         "seats": row.get("seats", 0),
         "total": row.get("total", 0),
         "hasSlip": bool(row.get("slipData")),
+        "slipStatus": (
+            "ผ่านอัตโนมัติ" if (row.get("slipCheck") or {}).get("autoConfirm")
+            else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if row.get("slipData") else "ไม่มีสลิป"))
+        ),
         "createdAt": row.get("createdAt", ""),
         "updatedAt": bangkok_now(),
     }
@@ -363,6 +489,8 @@ class Handler(BaseHTTPRequestHandler):
                 "slipData": body.get("slipData") or "",
                 "status": "pending",
             }
+            if order["slipData"]:
+                apply_slip_check(order, body, cat)
             db["shirts"].append(order)
             save_db(db)
         notify_sheets("shirt", order)
@@ -429,6 +557,7 @@ class Handler(BaseHTTPRequestHandler):
                 "slipData": body.get("slipData") or "",
                 "status": "pending",
             }
+            apply_slip_check(booking, body, cat)
             db["tables"].append(booking)
             save_db(db)
         notify_sheets("table", booking)
@@ -462,9 +591,10 @@ class Handler(BaseHTTPRequestHandler):
             target["slipData"] = body["slipData"]
             target["slipName"] = clean(body.get("slipName"), 120)
             kind = "shirt" if str(target.get("code", "")).startswith("SH") else "table"
+            apply_slip_check(target, body, load_catalog())
             save_db(db)
         notify_sheets(kind, target)
-        self.send_json(200, {"ok": True})
+        self.send_json(200, {"ok": True, "slipCheck": target.get("slipCheck"), "status": target.get("status")})
 
     def admin_login(self, body):
         password = str(body.get("password") or "")

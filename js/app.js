@@ -37,6 +37,7 @@ function blankShirt() {
     address: '',
     slipData: '',
     slipName: '',
+    slipQr: '',
     payOpen: false,
     success: null,
   }
@@ -51,6 +52,7 @@ function blankTable() {
     generation: '',
     slipData: '',
     slipName: '',
+    slipQr: '',
     payOpen: false,
     success: null,
   }
@@ -401,7 +403,7 @@ function shirtPayModal() {
           ${state.shirt.slipData ? 'เปลี่ยนสลิป' : 'แนบสลิป'}
           <input type="file" accept="image/png,image/jpeg,image/webp" data-file="shirt">
         </label>
-        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">แนบสลิปได้ก่อนกดยืนยันการโอน</p>'}
+        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}${state.shirt.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ไม่พบคิวอาร์บนสลิป จะรอตรวจมือ'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">แนบสลิปได้ก่อนกดยืนยันการโอน</p>'}
         <div class="row-actions">
           <button class="btn btn-dark" type="button" data-action="confirm-transfer"${state.busy ? ' disabled' : ''}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการโอน'}</button>
           <button class="btn btn-line" type="button" data-action="close-pay">กลับไปแก้รายการ</button>
@@ -412,9 +414,13 @@ function shirtPayModal() {
 
 function receiptModel(kind, order) {
   const event = state.catalog.event
-  const slipNote = order.hasSlip
-    ? 'แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ'
-    : 'ยังไม่ได้แนบสลิป สามารถแนบทีหลังได้ที่หน้าตรวจสอบการจอง'
+  const slipNote = order.slipCheck && order.slipCheck.autoConfirm
+    ? 'ระบบตรวจสลิปอัตโนมัติผ่านแล้ว'
+    : order.slipCheck && order.slipCheck.ok
+      ? `แนบสลิปแล้ว · ${order.slipCheck.reason || 'รอผู้จัดงานยืนยัน'}`
+      : order.hasSlip
+        ? (order.slipCheck && order.slipCheck.reason) || 'แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ'
+        : 'ยังไม่ได้แนบสลิป สามารถแนบทีหลังได้ที่หน้าตรวจสอบการจอง'
   if (kind === 'shirt') {
     const pieces = order.items.reduce((sum, item) => sum + item.qty, 0)
     return {
@@ -532,7 +538,7 @@ function tablePayModal() {
           ${state.table.slipData ? 'เปลี่ยนรูปสลิป' : 'แนบรูปสลิป'}
           <input type="file" accept="image/png,image/jpeg,image/webp" data-file="table">
         </label>
-        ${state.table.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.table.slipName)}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.table.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิป ก่อนกดยืนยันการชำระเงิน</p>'}
+        ${state.table.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.table.slipName)}${state.table.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ไม่พบคิวอาร์บนสลิป จะรอตรวจมือ'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.table.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิป ก่อนกดยืนยันการชำระเงิน</p>'}
         <div class="row-actions">
           <button class="btn btn-dark" type="button" data-action="confirm-table"${ready ? '' : ' disabled'}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการชำระเงิน'}</button>
           <button class="btn btn-line" type="button" data-action="close-table-pay">กลับไปแก้รายการ</button>
@@ -637,7 +643,9 @@ function bookingTable(kind, rows) {
     const detail = kind === 'shirt'
       ? row.items.map((item) => `${item.size}×${item.qty}`).join(', ')
       : `${row.tableCount} โต๊ะ`
-    const slip = row.slipData ? `<img class="slip-preview" alt="สลิป ${esc(row.code)}" src="${esc(row.slipData)}">` : 'ไม่มีสลิป'
+    const slip = row.slipData
+      ? `<img class="slip-preview" alt="สลิป ${esc(row.code)}" src="${esc(row.slipData)}">${row.slipCheck ? `<p class="fine">${esc(row.slipCheck.autoConfirm ? 'ตรวจสลิปผ่าน (อัตโนมัติ)' : row.slipCheck.reason || '')}</p>` : ''}`
+      : 'ไม่มีสลิป'
     return `<tr>
       <td>${esc(row.code)}<br><span class="pill ${esc(row.status)}">${statusText(row.status)}</span></td>
       <td>${esc(who)}<br>${esc(row.generation)}<br>${esc(row.phone)}</td>
@@ -712,6 +720,27 @@ function bindValue(el) {
   state[group][key] = el.type === 'checkbox' ? el.checked : el.value
 }
 
+function decodeQrFromCanvas(canvas) {
+  if (typeof window.jsQR !== 'function') return ''
+  const scales = [1, 0.85, 0.7, 1.25, 0.55]
+  for (const scale of scales) {
+    let target = canvas
+    if (scale !== 1) {
+      target = document.createElement('canvas')
+      target.width = Math.max(1, Math.round(canvas.width * scale))
+      target.height = Math.max(1, Math.round(canvas.height * scale))
+      target.getContext('2d').drawImage(canvas, 0, 0, target.width, target.height)
+    }
+    const ctx = target.getContext('2d')
+    const imageData = ctx.getImageData(0, 0, target.width, target.height)
+    const code = window.jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: 'attemptBoth',
+    })
+    if (code && code.data) return String(code.data).trim()
+  }
+  return ''
+}
+
 function readSlip(file, apply) {
   if (!file) return
   if (!/^image\/(png|jpeg|webp)$/.test(file.type) && !/\.(png|jpe?g|webp)$/i.test(file.name || '')) {
@@ -735,6 +764,7 @@ function readSlip(file, apply) {
       canvas.width = width
       canvas.height = height
       canvas.getContext('2d').drawImage(source, 0, 0, width, height)
+      const slipQr = decodeQrFromCanvas(canvas)
       let quality = 0.88
       let dataUrl = canvas.toDataURL('image/jpeg', quality)
       while (dataUrl.length > 1_800_000 && quality > 0.5) {
@@ -746,7 +776,7 @@ function readSlip(file, apply) {
         render(true)
         return
       }
-      apply(dataUrl, (file.name || 'slip').replace(/\.\w+$/, '') + '.jpg')
+      apply(dataUrl, (file.name || 'slip').replace(/\.\w+$/, '') + '.jpg', slipQr)
     }
     source.onerror = () => {
       state.error = 'เปิดรูปสลิปไม่สำเร็จ'
@@ -780,11 +810,14 @@ async function placeShirtOrder() {
         items,
         slipData: form.slipData,
         slipName: form.slipName,
+        slipQr: form.slipQr || '',
       }),
     })
     const order = data.order
     state.shirt = blankShirt()
     state.shirt.success = order
+    if (order.slipCheck && order.slipCheck.autoConfirm) toast('ตรวจสลิปผ่านแล้ว')
+    else if (order.slipCheck && order.slipCheck.reason) toast(order.slipCheck.reason)
     state.catalog = await api('/api/public')
   } catch (error) {
     state.error = error.message
@@ -861,11 +894,14 @@ async function placeTableOrder() {
         tableCount: form.count,
         slipData: form.slipData,
         slipName: form.slipName,
+        slipQr: form.slipQr || '',
       }),
     })
     const booking = data.booking
     state.table = blankTable()
     state.table.success = booking
+    if (booking.slipCheck && booking.slipCheck.autoConfirm) toast('ตรวจสลิปผ่านแล้ว')
+    else if (booking.slipCheck && booking.slipCheck.reason) toast(booking.slipCheck.reason)
     state.catalog = await api('/api/public')
   } catch (error) {
     state.error = error.message
@@ -1404,26 +1440,30 @@ function onChange(event) {
     if (el.dataset.bind.endsWith('pickup') || el.type === 'checkbox') render(true)
   }
   if (el.dataset.file) {
-    readSlip(el.files[0], (slipData, slipName) => {
+    readSlip(el.files[0], (slipData, slipName, slipQr) => {
       state[el.dataset.file].slipData = slipData
       state[el.dataset.file].slipName = slipName
+      state[el.dataset.file].slipQr = slipQr || ''
       state.error = ''
       render(true)
     })
   }
   if (el.dataset.slipCode) {
-    readSlip(el.files[0], async (slipData, slipName) => {
+    readSlip(el.files[0], async (slipData, slipName, slipQr) => {
       try {
-        await api('/api/slip', {
+        const result = await api('/api/slip', {
           method: 'POST',
           body: JSON.stringify({
             code: el.dataset.slipCode,
             phone: phoneDigits(state.lookup.phone),
             slipData,
             slipName,
+            slipQr: slipQr || '',
           }),
         })
-        toast('แนบสลิปแล้ว')
+        if (result.slipCheck && result.slipCheck.autoConfirm) toast('ตรวจสลิปผ่านแล้ว')
+        else if (result.slipCheck && result.slipCheck.reason) toast(result.slipCheck.reason)
+        else toast('แนบสลิปแล้ว')
         const data = await api('/api/lookup', { method: 'POST', body: JSON.stringify({ phone: phoneDigits(state.lookup.phone) }) })
         state.lookup.shirts = data.shirts
         state.lookup.tables = data.tables

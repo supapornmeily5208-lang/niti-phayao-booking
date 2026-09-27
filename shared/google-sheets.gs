@@ -44,8 +44,8 @@ function upsert_(ss, row) {
   var isShirt = row.kind === 'shirt'
   var sheet = ss.getSheetByName(isShirt ? SHEET_SHIRTS : SHEET_TABLES)
   var values = isShirt
-    ? [row.updatedAt || '', row.code || '', row.status || '', row.name || '', row.phone || '', row.address || '', row.detail || '', row.total || '', row.hasSlip ? 'ใช่' : 'ไม่', row.createdAt || '']
-    : [row.updatedAt || '', row.code || '', row.status || '', row.name || '', row.generation || '', row.phone || '', row.address || '', row.tableCount || '', row.seats || '', row.total || '', row.hasSlip ? 'ใช่' : 'ไม่', row.createdAt || '']
+    ? [row.updatedAt || '', row.code || '', row.status || '', row.name || '', row.phone || '', row.address || '', row.detail || '', row.total || '', row.slipStatus || (row.hasSlip ? 'ใช่' : 'ไม่'), row.createdAt || '']
+    : [row.updatedAt || '', row.code || '', row.status || '', row.name || '', row.generation || '', row.phone || '', row.address || '', row.tableCount || '', row.seats || '', row.total || '', row.slipStatus || (row.hasSlip ? 'ใช่' : 'ไม่'), row.createdAt || '']
 
   var last = sheet.getLastRow()
   if (last < 2) {
