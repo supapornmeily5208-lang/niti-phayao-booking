@@ -270,7 +270,11 @@ def to_public(row):
 
 
 def bangkok_now():
-    return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def sheets_row_shirt(row):
@@ -666,6 +670,9 @@ class Handler(BaseHTTPRequestHandler):
             if target["status"] == "cancelled":
                 self.send_json(400, {"error": "รายการนี้ถูกยกเลิกแล้ว"})
                 return
+            if target["status"] == "confirmed":
+                self.send_json(400, {"error": "รายการยืนยันแล้ว ไม่สามารถเปลี่ยนสลิปได้ กรุณาติดต่อผู้จัดงาน"})
+                return
             cat = load_catalog()
             check, slip_error = require_valid_slip(body, target.get("total"), cat)
             if slip_error:
@@ -674,8 +681,7 @@ class Handler(BaseHTTPRequestHandler):
             target["slipData"] = body["slipData"]
             target["slipName"] = clean(body.get("slipName"), 120)
             target["slipCheck"] = check
-            if target.get("status") != "cancelled":
-                target["status"] = "pending"
+            target["status"] = "pending"
             kind = "shirt" if str(target.get("code", "")).startswith("SH") else "table"
             save_db(db)
         notify_sheets(kind, target)

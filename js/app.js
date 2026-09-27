@@ -433,7 +433,7 @@ function shirtSizeStep() {
 function shirtPayModal() {
   const total = shirtTotal()
   const lines = shirtLines()
-  const ready = Boolean(state.shirt.slipData) && !state.busy
+  const ready = Boolean(state.shirt.slipData && state.shirt.slipQr) && !state.busy
   return `
     <div class="modal-back">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pay-title">
@@ -614,7 +614,7 @@ function tablesPage() {
 function tablePayModal() {
   const table = state.catalog.table
   const count = state.table.count
-  const ready = Boolean(state.table.slipData) && !state.busy
+  const ready = Boolean(state.table.slipData && state.table.slipQr) && !state.busy
   return `
     <div class="modal-back">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="table-pay-title">
@@ -672,7 +672,7 @@ function renderLookup() {
 }
 
 function orderCard(kind, order) {
-  const canSlip = order.status !== 'cancelled'
+  const canSlip = order.status === 'pending' || (order.status !== 'cancelled' && !order.hasSlip)
   const needPay = canSlip && !order.hasSlip
   const pickup = order.pickup || ''
   const detail = kind === 'shirt'
@@ -697,12 +697,12 @@ function orderCard(kind, order) {
           <div><dt>ประเภท</dt><dd>${kind === 'shirt' ? 'เสื้อที่ระลึก' : 'โต๊ะจีน'}</dd></div>
           ${kind === 'table' && order.generation ? `<div><dt>รุ่น</dt><dd>${esc(order.generation)}</dd></div>` : ''}
           ${pickup ? `<div><dt>วิธีรับ</dt><dd>${esc(pickup)}</dd></div>` : ''}
-          ${pickup === 'จัดส่ง' && order.address ? `<div><dt>ที่อยู่</dt><dd>${esc(order.address)}</dd></div>` : ''}
+          ${(kind === 'table' || pickup === 'จัดส่ง') && order.address ? `<div><dt>ที่อยู่</dt><dd>${esc(order.address)}</dd></div>` : ''}
           ${order.trackingNumber ? `<div><dt>หมายเลขพัสดุ</dt><dd>${esc(order.trackingNumber)}</dd></div>` : ''}
           <div><dt>รายการ</dt><dd>${esc(detail)}</dd></div>
           <div><dt>ยอดรวม</dt><dd><strong>${baht(order.total)}</strong></dd></div>
           <div><dt>วันเวลา</dt><dd>${esc(when(order.createdAt))}</dd></div>
-          <div><dt>สลิป</dt><dd>${order.hasSlip ? 'แนบแล้ว' : 'ยังไม่มี'}</dd></div>
+          <div><dt>สลิป</dt><dd>${order.hasSlip ? 'แนบแล้ว' : 'ยังไม่มี'}${order.slipCheck && order.slipCheck.reason ? ` · ${esc(order.slipCheck.reason)}` : ''}</dd></div>
         </dl>
         ${canSlip ? `
           <div class="booking-card-actions">
@@ -736,6 +736,7 @@ function adminPage() {
       <div class="page-head">
         <p class="kicker">ผู้จัดงาน</p>
         <h2>รายการจองทั้งหมด</h2>
+        <button class="btn btn-line no-print" type="button" data-action="refresh-admin">รีเฟรช</button>
         <button class="btn btn-line no-print" type="button" data-action="logout">ออกจากระบบ</button>
       </div>
       ${state.error ? `<p class="alert">${esc(state.error)}</p>` : ''}
@@ -817,7 +818,7 @@ function bookingTable(kind, rows) {
           <dl class="receipt-facts">
             ${kind === 'table' && row.generation ? `<div><dt>รุ่น</dt><dd>${esc(row.generation)}</dd></div>` : ''}
             ${pickup ? `<div><dt>วิธีรับ</dt><dd>${esc(pickup)}</dd></div>` : ''}
-            ${pickup === 'จัดส่ง' && row.address ? `<div><dt>ที่อยู่</dt><dd>${esc(row.address)}</dd></div>` : ''}
+            ${(kind === 'table' || pickup === 'จัดส่ง') && row.address ? `<div><dt>ที่อยู่</dt><dd>${esc(row.address)}</dd></div>` : ''}
             ${row.trackingNumber ? `<div><dt>หมายเลขพัสดุ</dt><dd>${esc(row.trackingNumber)}</dd></div>` : ''}
             <div><dt>รายการ</dt><dd>${detail}</dd></div>
             <div><dt>ยอดรวม</dt><dd><strong>${baht(row.total)}</strong></dd></div>
@@ -1001,6 +1002,7 @@ function fail(message) {
 }
 
 async function placeShirtOrder() {
+  if (state.busy) return
   const form = state.shirt
   const items = shirtLines().map(([size, qty]) => ({ size, qty }))
   if (!items.length) return fail('กรุณาเลือกไซส์และจำนวนเสื้อ')
@@ -1036,7 +1038,15 @@ async function placeShirtOrder() {
     toast('บันทึกแล้ว รอผู้จัดงานตรวจสอบ')
     state.catalog = await api('/api/public')
   } catch (error) {
-    rejectSlip('shirt', error.message || 'รูปที่แนบไม่ใช่สลิป กรุณาแนบสลิปใหม่')
+    const message = error.message || 'บันทึกไม่สำเร็จ'
+    if (/สลิป|คิวอาร์|รูปที่แนบ/i.test(message)) {
+      rejectSlip('shirt', message)
+      return
+    }
+    state.error = message
+    state.shirt.payOpen = true
+    state.busy = false
+    render(true)
     return
   } finally {
     state.busy = false
@@ -1092,6 +1102,7 @@ function openTablePay(event) {
 }
 
 async function placeTableOrder() {
+  if (state.busy) return
   const form = state.table
   if (!form.slipData) {
     state.error = 'กรุณาแนบรูปสลิปก่อนยืนยันการชำระเงิน'
@@ -1124,7 +1135,15 @@ async function placeTableOrder() {
     toast('บันทึกแล้ว รอผู้จัดงานตรวจสอบ')
     state.catalog = await api('/api/public')
   } catch (error) {
-    rejectSlip('table', error.message || 'รูปที่แนบไม่ใช่สลิป กรุณาแนบสลิปใหม่')
+    const message = error.message || 'บันทึกไม่สำเร็จ'
+    if (/สลิป|คิวอาร์|รูปที่แนบ/i.test(message)) {
+      rejectSlip('table', message)
+      return
+    }
+    state.error = message
+    state.table.payOpen = true
+    state.busy = false
+    render(true)
     return
   } finally {
     state.busy = false
@@ -1309,6 +1328,10 @@ function onClick(event) {
   }
   if (action === 'sheets-sync') {
     syncGoogleSheets()
+    return
+  }
+  if (action === 'refresh-admin') {
+    loadAdmin()
     return
   }
   if (action === 'logout') {
@@ -1680,7 +1703,7 @@ function boot() {
   window.addEventListener('hashchange', () => {
     state.page = readPage()
     state.error = ''
-    if (state.page === 'admin' && state.admin.token && !state.admin.bookings) loadAdmin()
+    if (state.page === 'admin' && state.admin.token) loadAdmin()
     else render()
     window.scrollTo(0, 0)
   })
