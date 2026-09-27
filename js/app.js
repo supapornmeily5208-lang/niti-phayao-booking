@@ -627,10 +627,16 @@ function adminStats(data) {
   const tables = data.tables.filter((row) => row.status !== 'cancelled')
   const tally = {}
   shirts.forEach((row) => row.items.forEach((item) => { tally[item.size] = (tally[item.size] || 0) + item.qty }))
-  const sizeText = state.catalog.shirt.sizes.map((size) => `${size} ${tally[size] || 0}`).join(' · ')
+  const sizeLines = state.catalog.shirt.sizes.map((size) => (
+    `<li><span>${esc(size)}</span><strong>${tally[size] || 0}</strong></li>`
+  )).join('')
   return `
     <div class="admin-stats">
-      <article class="stat"><p class="kicker">เสื้อที่สั่ง</p><p class="total">${shirts.reduce((sum, row) => sum + row.items.reduce((inner, item) => inner + item.qty, 0), 0)}</p><p>${esc(sizeText)}</p></article>
+      <article class="stat">
+        <p class="kicker">เสื้อที่สั่ง</p>
+        <p class="total">${shirts.reduce((sum, row) => sum + row.items.reduce((inner, item) => inner + item.qty, 0), 0)}</p>
+        <ul class="size-lines">${sizeLines}</ul>
+      </article>
       <article class="stat"><p class="kicker">โต๊ะที่จอง</p><p class="total">${tables.reduce((sum, row) => sum + row.tableCount, 0)}</p></article>
       <article class="stat"><p class="kicker">ยอดรอตรวจ</p><p class="total">${baht([...shirts, ...tables].filter((row) => row.status === 'pending').reduce((sum, row) => sum + row.total, 0))}</p></article>
     </div>`
@@ -642,15 +648,15 @@ function bookingTable(kind, rows) {
   const body = visible.map((row) => {
     const who = kind === 'shirt' ? row.name : row.hostName
     const detail = kind === 'shirt'
-      ? row.items.map((item) => `${item.size}×${item.qty}`).join(', ')
+      ? `<ul class="size-lines">${row.items.map((item) => `<li><span>${esc(item.size)}</span><strong>× ${item.qty}</strong></li>`).join('')}</ul>`
       : `${row.tableCount} โต๊ะ`
     const slip = row.slipData
       ? `<img class="slip-preview" alt="สลิป ${esc(row.code)}" src="${esc(row.slipData)}">${row.slipCheck ? `<p class="fine">${esc(row.slipCheck.autoConfirm ? 'ตรวจสลิปผ่าน (อัตโนมัติ)' : row.slipCheck.reason || '')}</p>` : ''}`
       : 'ไม่มีสลิป'
     return `<tr>
       <td>${esc(row.code)}<br><span class="pill ${esc(row.status)}">${statusText(row.status)}</span></td>
-      <td>${esc(who)}<br>${esc(row.generation)}<br>${esc(row.phone)}</td>
-      <td>${esc(detail)}<br>${baht(row.total)}${row.address ? `<br>${esc(row.address)}` : ''}<br><span class="fine">${esc(row.guests || '')} ${esc(row.note || '')}</span></td>
+      <td>${esc(who)}<br>${esc(row.generation || '')}<br>${esc(row.phone)}</td>
+      <td>${detail}<div class="line-gap">${baht(row.total)}</div>${row.address ? `<p class="fine">${esc(row.address)}</p>` : ''}${row.guests || row.note ? `<p class="fine">${esc(row.guests || '')} ${esc(row.note || '')}</p>` : ''}</td>
       <td>${slip}</td>
       <td class="admin-actions">
         <button class="btn btn-line" type="button" data-action="status" data-kind="${kind}" data-id="${esc(row.id)}" data-status="confirmed">ยืนยัน</button>
