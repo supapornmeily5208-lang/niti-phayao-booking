@@ -349,7 +349,18 @@ function shirtsPage() {
   const shirt = state.catalog.shirt
   if (state.shirt.success) return bookingReceipt('shirt', state.shirt.success)
   const step = state.shirt.step
-  const showPhotos = step === 1 || state.shirt.photosOpen
+  const photos = state.shirt.photosOpen
+    ? `<div class="shirt-photos">
+        <figure>
+          <img src="/shirt-sample.jpg" alt="เสื้อโปโลสีกรมท่า ด้านหน้าและด้านหลัง ราคา 350 บาท รหัส WA-212PLACL30">
+          <figcaption>เสื้อโปโล WARRIX รหัส WA-212PLACL30 · ตัวละ ${baht(shirt.price)}</figcaption>
+        </figure>
+        <figure>
+          <img src="/size-chart.jpg" alt="ตารางไซส์ XS ถึง 7L แสดงรอบอกและยาว">
+          <figcaption>ตารางไซส์ รอบอกและยาว หน่วยเป็นนิ้ว</figcaption>
+        </figure>
+      </div>`
+    : ''
   return `
     <main><div class="wrap shirt-flow">
       <div class="page-head">
@@ -359,18 +370,9 @@ function shirtsPage() {
       </div>
       ${state.error && !state.shirt.payOpen ? `<p class="alert">${esc(state.error)}</p>` : ''}
       ${deadlineBanner(state.catalog.shirtOpen, shirt.deadlineLabel, 'เสื้อ')}
-      ${step === 2 ? `<p class="photo-toggle"><button class="btn btn-line" type="button" data-action="toggle-shirt-photos">${state.shirt.photosOpen ? 'ซ่อนรูปเสื้อและตารางไซส์' : 'ดูรูปเสื้อและตารางไซส์'}</button></p>` : ''}
-      ${showPhotos ? `<div class="shirt-photos">
-        <figure>
-          <img src="/shirt-sample.jpg" alt="เสื้อโปโลสีกรมท่า ด้านหน้าและด้านหลัง ราคา 350 บาท รหัส WA-212PLACL30">
-          <figcaption>เสื้อโปโล WARRIX รหัส WA-212PLACL30 · ตัวละ ${baht(shirt.price)}</figcaption>
-        </figure>
-        <figure>
-          <img src="/size-chart.jpg" alt="ตารางไซส์ XS ถึง 7L แสดงรอบอกและยาว">
-          <figcaption>ตารางไซส์ รอบอกและยาว หน่วยเป็นนิ้ว</figcaption>
-        </figure>
-      </div>` : ''}
       ${step === 1 ? shirtInfoStep() : shirtSizeStep()}
+      <p class="photo-toggle"><button class="btn btn-line" type="button" data-action="toggle-shirt-photos">${photos ? 'ซ่อนรูปเสื้อและตารางไซส์' : 'ดูรูปเสื้อและตารางไซส์'}</button></p>
+      ${photos}
       ${state.shirt.payOpen ? shirtPayModal() : ''}
     </div></main>`
 }
