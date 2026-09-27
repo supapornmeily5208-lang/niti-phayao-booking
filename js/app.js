@@ -404,7 +404,7 @@ function shirtPayModal() {
           ${state.shirt.slipData ? 'เปลี่ยนสลิป' : 'แนบสลิป'}
           <input type="file" accept="image/png,image/jpeg,image/webp" data-file="shirt">
         </label>
-        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}${state.shirt.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ไม่พบคิวอาร์บนสลิป จะรอตรวจมือ'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิป ก่อนกดยืนยันการโอน</p>'}
+        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}${state.shirt.slipQr ? ' · พบคิวอาร์บนสลิป' : ''}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิป ก่อนกดยืนยันการโอน</p>'}
         <div class="row-actions">
           <button class="btn btn-dark" type="button" data-action="confirm-transfer"${ready ? '' : ' disabled'}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการโอน'}</button>
           <button class="btn btn-line" type="button" data-action="close-pay">กลับไปแก้รายการ</button>
@@ -539,7 +539,7 @@ function tablePayModal() {
           ${state.table.slipData ? 'เปลี่ยนรูปสลิป' : 'แนบรูปสลิป'}
           <input type="file" accept="image/png,image/jpeg,image/webp" data-file="table">
         </label>
-        ${state.table.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.table.slipName)}${state.table.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ไม่พบคิวอาร์บนสลิป จะรอตรวจมือ'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.table.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิป ก่อนกดยืนยันการชำระเงิน</p>'}
+        ${state.table.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.table.slipName)}${state.table.slipQr ? ' · พบคิวอาร์บนสลิป' : ''}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.table.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิป ก่อนกดยืนยันการชำระเงิน</p>'}
         <div class="row-actions">
           <button class="btn btn-dark" type="button" data-action="confirm-table"${ready ? '' : ' disabled'}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการชำระเงิน'}</button>
           <button class="btn btn-line" type="button" data-action="close-table-pay">กลับไปแก้รายการ</button>
@@ -638,7 +638,7 @@ function adminStats(data) {
         <ul class="size-lines">${sizeLines}</ul>
       </article>
       <article class="stat"><p class="kicker">โต๊ะที่จอง</p><p class="total">${tables.reduce((sum, row) => sum + row.tableCount, 0)}</p></article>
-      <article class="stat"><p class="kicker">ยอดรอตรวจ</p><p class="total">${baht([...shirts, ...tables].filter((row) => row.status === 'pending').reduce((sum, row) => sum + row.total, 0))}</p></article>
+      <article class="stat"><p class="kicker">ยอดจองทั้งหมด</p><p class="total">${baht([...shirts, ...tables].reduce((sum, row) => sum + row.total, 0))}</p></article>
     </div>`
 }
 
@@ -750,8 +750,8 @@ function decodeQrFromCanvas(canvas) {
 
 function readSlip(file, apply) {
   if (!file) return
-  if (!/^image\/(png|jpeg|webp)$/.test(file.type) && !/\.(png|jpe?g|webp)$/i.test(file.name || '')) {
-    state.error = 'รองรับเฉพาะไฟล์ PNG, JPG หรือ WEBP'
+  if (!/^image\/(png|jpeg|jpg|webp|heic|heif)$/i.test(file.type || '') && !/\.(png|jpe?g|webp|heic|heif)$/i.test(file.name || '')) {
+    state.error = 'รองรับเฉพาะไฟล์รูปภาพ เช่น PNG, JPG หรือ WEBP'
     render(true)
     return
   }
@@ -830,7 +830,7 @@ async function placeShirtOrder() {
     state.shirt = blankShirt()
     state.shirt.success = order
     if (order.slipCheck && order.slipCheck.autoConfirm) toast('ตรวจสลิปผ่านแล้ว')
-    else if (order.slipCheck && order.slipCheck.reason) toast(order.slipCheck.reason)
+    else if (form.slipData) toast('แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ')
     state.catalog = await api('/api/public')
   } catch (error) {
     state.error = error.message
@@ -914,7 +914,7 @@ async function placeTableOrder() {
     state.table = blankTable()
     state.table.success = booking
     if (booking.slipCheck && booking.slipCheck.autoConfirm) toast('ตรวจสลิปผ่านแล้ว')
-    else if (booking.slipCheck && booking.slipCheck.reason) toast(booking.slipCheck.reason)
+    else toast('แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ')
     state.catalog = await api('/api/public')
   } catch (error) {
     state.error = error.message
@@ -1475,8 +1475,7 @@ function onChange(event) {
           }),
         })
         if (result.slipCheck && result.slipCheck.autoConfirm) toast('ตรวจสลิปผ่านแล้ว')
-        else if (result.slipCheck && result.slipCheck.reason) toast(result.slipCheck.reason)
-        else toast('แนบสลิปแล้ว')
+        else toast('แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ')
         const data = await api('/api/lookup', { method: 'POST', body: JSON.stringify({ phone: phoneDigits(state.lookup.phone) }) })
         state.lookup.shirts = data.shirts
         state.lookup.tables = data.tables

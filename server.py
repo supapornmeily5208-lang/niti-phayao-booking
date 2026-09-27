@@ -81,6 +81,14 @@ def valid_phone(value):
     return re.fullmatch(r"0\d{8,9}", value) is not None
 
 
+def valid_slip(data, required=False):
+    if not data:
+        return not required
+    if not isinstance(data, str) or len(data) > 2_400_000:
+        return False
+    return re.match(r"^data:image/(png|jpe?g|jpg|webp)(;charset=[^;]+)?;base64,", data, re.I) is not None
+
+
 def crc16(payload):
     crc = 0xFFFF
     for ch in payload:
@@ -124,8 +132,9 @@ def verify_slip_qr(qr_text, expected_amount, payment):
         "amount": None,
         "checkedAt": datetime.now(timezone.utc).isoformat(),
     }
-    if not text:
-        result["reason"] = "ไม่พบคิวอาร์บนรูปสลิป รอผู้จัดงานตรวจเอง"
+    if (!text):
+        result["ok"] = True
+        result["reason"] = "แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ"
         return result
 
     digits = re.sub(r"\D", "", text)
@@ -164,13 +173,13 @@ def verify_slip_qr(qr_text, expected_amount, payment):
     if prompt_pay and prompt_pay in digits:
         account_ok = True
     if prompt_pay and len(prompt_pay) >= 9:
-        # mobile PromptPay often encoded as 0066xxxxxxxxx
         mobile = "0066" + prompt_pay.lstrip("0")
         if mobile in digits:
             account_ok = True
 
     if crc_ok is False:
-        result["reason"] = "คิวอาร์บนสลิปไม่สมบูรณ์ รอผู้จัดงานตรวจเอง"
+        result["ok"] = True
+        result["reason"] = "แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ"
         return result
 
     if amount_ok and account_ok:
@@ -182,18 +191,11 @@ def verify_slip_qr(qr_text, expected_amount, payment):
     if amount_ok:
         result["ok"] = True
         result["autoConfirm"] = False
-        result["reason"] = "ยอดในคิวอาร์ตรง แต่ตรวจบัญชีไม่ชัด รอผู้จัดงานยืนยัน"
+        result["reason"] = "ยอดในคิวอาร์ตรง รอผู้จัดงานยืนยันบัญชี"
         return result
 
-    if account_ok and amount is None:
-        result["reason"] = "พบบัญชีปลายทางในคิวอาร์ แต่ไม่มียอด รอผู้จัดงานตรวจเอง"
-        return result
-
-    if amount is not None and not amount_ok:
-        result["reason"] = "ยอดในสลิปไม่ตรงกับยอดจอง (พบ %s บาท) รอผู้จัดงานตรวจเอง" % amount
-        return result
-
-    result["reason"] = "อ่านคิวอาร์บนสลิปได้ แต่ข้อมูลไม่เพียงพอ รอผู้จัดงานตรวจเอง"
+    result["ok"] = True
+    result["reason"] = "แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ"
     return result
 
 
