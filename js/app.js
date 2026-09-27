@@ -38,6 +38,7 @@ function blankShirt() {
     phone: '',
     pickup: '',
     address: '',
+    photosOpen: false,
     slipData: '',
     slipName: '',
     slipQr: '',
@@ -348,6 +349,7 @@ function shirtsPage() {
   const shirt = state.catalog.shirt
   if (state.shirt.success) return bookingReceipt('shirt', state.shirt.success)
   const step = state.shirt.step
+  const showPhotos = step === 1 || state.shirt.photosOpen
   return `
     <main><div class="wrap shirt-flow">
       <div class="page-head">
@@ -357,7 +359,8 @@ function shirtsPage() {
       </div>
       ${state.error && !state.shirt.payOpen ? `<p class="alert">${esc(state.error)}</p>` : ''}
       ${deadlineBanner(state.catalog.shirtOpen, shirt.deadlineLabel, 'เสื้อ')}
-      <div class="shirt-photos">
+      ${step === 2 ? `<p class="photo-toggle"><button class="btn btn-line" type="button" data-action="toggle-shirt-photos">${state.shirt.photosOpen ? 'ซ่อนรูปเสื้อและตารางไซส์' : 'ดูรูปเสื้อและตารางไซส์'}</button></p>` : ''}
+      ${showPhotos ? `<div class="shirt-photos">
         <figure>
           <img src="/shirt-sample.jpg" alt="เสื้อโปโลสีกรมท่า ด้านหน้าและด้านหลัง ราคา 350 บาท รหัส WA-212PLACL30">
           <figcaption>เสื้อโปโล WARRIX รหัส WA-212PLACL30 · ตัวละ ${baht(shirt.price)}</figcaption>
@@ -366,7 +369,7 @@ function shirtsPage() {
           <img src="/size-chart.jpg" alt="ตารางไซส์ XS ถึง 7L แสดงรอบอกและยาว">
           <figcaption>ตารางไซส์ รอบอกและยาว หน่วยเป็นนิ้ว</figcaption>
         </figure>
-      </div>
+      </div>` : ''}
       ${step === 1 ? shirtInfoStep() : shirtSizeStep()}
       ${state.shirt.payOpen ? shirtPayModal() : ''}
     </div></main>`
@@ -1063,6 +1066,7 @@ function goShirtInfo(event) {
   if (form.pickup === 'รับเอง') form.address = ''
   state.error = ''
   state.shirt.step = 2
+  state.shirt.photosOpen = false
   render()
   window.scrollTo(0, 0)
 }
@@ -1264,8 +1268,14 @@ function onClick(event) {
   if (action === 'shirt-back') {
     state.shirt.step = 1
     state.shirt.payOpen = false
+    state.shirt.photosOpen = false
     state.error = ''
     render()
+    return
+  }
+  if (action === 'toggle-shirt-photos') {
+    state.shirt.photosOpen = !state.shirt.photosOpen
+    render(true)
     return
   }
   if (action === 'close-pay') {

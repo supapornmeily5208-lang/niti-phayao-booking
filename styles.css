@@ -233,6 +233,8 @@ dd { margin: 0; }
 .summary .account { font-size: 22px; }
 .summary .btn-dark { width: 100%; margin-top: 8px; }
 .shirt-flow { max-width: 720px; }
+.photo-toggle { margin: 0 0 14px; }
+.photo-toggle .btn { width: 100%; }
 .shirt-photos { display: grid; gap: 14px; margin: 0 0 18px; }
 .shirt-photos figure { margin: 0; }
 .shirt-photos img { width: 100%; height: auto; display: block; background: white; border: 1px solid var(--line); border-radius: 18px; }
