@@ -358,8 +358,7 @@ function shirtsPage() {
   const shirt = state.catalog.shirt
   if (state.shirt.success) return bookingReceipt('shirt', state.shirt.success)
   const step = state.shirt.step
-  const photos = state.shirt.photosOpen
-    ? `<div class="shirt-photos">
+  const photoBlock = `<div class="shirt-photos">
         <figure>
           <img src="/shirt-sample.jpg" alt="เสื้อโปโลสีกรมท่า ด้านหน้าและด้านหลัง ราคา 350 บาท รหัส WA-212PLACL30">
           <figcaption>เสื้อโปโล WARRIX รหัส WA-212PLACL30 · ตัวละ ${baht(shirt.price)}</figcaption>
@@ -369,7 +368,7 @@ function shirtsPage() {
           <figcaption>ตารางไซส์ รอบอกและยาว หน่วยเป็นนิ้ว</figcaption>
         </figure>
       </div>`
-    : ''
+  const showPhotos = step === 1 || state.shirt.photosOpen
   return `
     <main><div class="wrap shirt-flow">
       <div class="page-head">
@@ -379,9 +378,10 @@ function shirtsPage() {
       </div>
       ${state.error && !state.shirt.payOpen ? `<p class="alert">${esc(state.error)}</p>` : ''}
       ${deadlineBanner(state.catalog.shirtOpen, shirt.deadlineLabel, 'เสื้อ')}
+      ${step === 1 && showPhotos ? photoBlock : ''}
       ${step === 1 ? shirtInfoStep() : shirtSizeStep()}
-      <p class="photo-toggle"><button class="btn btn-line" type="button" data-action="toggle-shirt-photos">${photos ? 'ซ่อนรูปเสื้อและตารางไซส์' : 'ดูรูปเสื้อและตารางไซส์'}</button></p>
-      ${photos}
+      ${step === 2 ? `<p class="photo-toggle"><button class="btn btn-line" type="button" data-action="toggle-shirt-photos">${state.shirt.photosOpen ? 'ซ่อนรูปเสื้อและตารางไซส์' : 'ดูรูปเสื้อและตารางไซส์'}</button></p>` : ''}
+      ${step === 2 && showPhotos ? photoBlock : ''}
       ${state.shirt.payOpen ? shirtPayModal() : ''}
     </div></main>`
 }
