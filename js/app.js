@@ -21,7 +21,9 @@ const state = {
     token: sessionStorage.getItem('niti-admin') || '',
     password: '',
     bookings: null,
-    filter: 'pending',
+    filter: 'all',
+    query: '',
+    slipZoom: '',
   },
   receiptView: null,
 }
@@ -34,6 +36,7 @@ function blankShirt() {
     items: {},
     name: '',
     phone: '',
+    pickup: '',
     address: '',
     slipData: '',
     slipName: '',
@@ -165,7 +168,7 @@ function render(keepFocus) {
     return
   }
   root.innerHTML = `${nav()}${pageBody()}${footer()}`
-  document.body.classList.toggle('modal-open', (state.page === 'shirts' && state.shirt.payOpen) || (state.page === 'tables' && state.table.payOpen))
+  document.body.classList.toggle('modal-open', (state.page === 'shirts' && state.shirt.payOpen) || (state.page === 'tables' && state.table.payOpen) || Boolean(state.admin.slipZoom))
   mountQrs()
   if (focusId) {
     const field = document.getElementById(focusId)
@@ -281,25 +284,49 @@ function scene(rain) {
 
 function paymentCard(amount, reference) {
   const payment = state.catalog.payment
-  const payload = payloadFor(amount, reference)
-  const heading = amount ? baht(amount) : 'สแกนแล้วใส่ยอดเอง'
+  const qrImage = payment.qrImage || ''
+  const payload = qrImage ? '' : payloadFor(amount, reference)
+  const heading = amount ? baht(amount) : 'ใส่ยอดตามยอดจอง'
+  const account = String(payment.accountNumber || '').trim()
+  const qrName = String(payment.qrAccountName || payment.accountName || '').trim()
+  const accountName = String(payment.accountName || '').trim()
+  const qrBlock = qrImage
+    ? `<div class="qr-frame qr-frame-image"><img src="${esc(qrImage)}" alt="คิวอาร์รับเงิน ${esc(qrName)}"></div>`
+    : `<div class="qr-frame" data-qr="${esc(payload)}"></div>`
   return `
     <section class="pay-card">
-      <div class="qr-frame" data-qr="${esc(payload)}"></div>
+      ${qrBlock}
       <div>
-        <p class="kicker">ธนาคารกรุงไทย</p>
+        <p class="kicker">ชำระเงินได้ 2 ช่องทาง</p>
         <h3>${heading}</h3>
-        <dl>
-          <div><dt>ธนาคาร</dt><dd>${esc(payment.bank)}</dd></div>
-          <div><dt>เลขที่บัญชี</dt><dd class="account">${esc(payment.accountNumber)}</dd></div>
-          <div><dt>ชื่อบัญชี</dt><dd>${esc(payment.accountName)}</dd></div>
-          ${reference ? `<div><dt>รหัสอ้างอิงในคิวอาร์</dt><dd>${esc(reference)}</dd></div>` : ''}
-        </dl>
-        <div class="row-actions no-print">
-          <button class="btn btn-line" type="button" data-action="copy" data-value="${esc(digits(payment.accountNumber))}">คัดลอกเลขบัญชี</button>
-          <button class="btn btn-line" type="button" data-action="download-qr" data-payload="${esc(payload)}" data-name="${esc(reference || 'krungthai')}">บันทึกคิวอาร์</button>
+
+        <div class="pay-method">
+          <p class="pay-method-title">1) สแกนคิวอาร์</p>
+          <dl>
+            <div><dt>ผู้รับ</dt><dd>${esc(qrName)}</dd></div>
+            ${payment.purpose ? `<div><dt>วัตถุประสงค์</dt><dd>${esc(payment.purpose)}</dd></div>` : ''}
+          </dl>
+          <p class="fine">สแกนคิวอาร์ด้านซ้าย แล้วใส่ยอด ${amount ? baht(amount) : 'ตามยอดจอง'}</p>
         </div>
-        <p class="fine">เมื่อสแกนแล้ว ให้ตรวจชื่อผู้รับเป็น «${esc(payment.accountName)}» ก่อนกดยืนยันทุกครั้ง หากแอปอ่านคิวอาร์ไม่ได้ ให้โอนเข้าเลขบัญชีด้านบน</p>
+
+        ${account ? `
+        <div class="pay-method">
+          <p class="pay-method-title">2) โอนเข้าบัญชี</p>
+          <dl>
+            <div><dt>ธนาคาร</dt><dd>${esc(payment.bank)}</dd></div>
+            <div><dt>เลขที่บัญชี</dt><dd class="account">${esc(account)}</dd></div>
+            <div><dt>ชื่อบัญชี</dt><dd>${esc(accountName)}</dd></div>
+            ${reference ? `<div><dt>รหัสอ้างอิงการจอง</dt><dd>${esc(reference)}</dd></div>` : ''}
+          </dl>
+        </div>` : ''}
+
+        <div class="row-actions no-print">
+          ${account ? `<button class="btn btn-line" type="button" data-action="copy" data-value="${esc(digits(account))}">คัดลอกเลขบัญชี</button>` : ''}
+          ${qrImage
+            ? `<a class="btn btn-line" href="${esc(qrImage)}" download="payment-qr.png">บันทึกคิวอาร์</a>`
+            : `<button class="btn btn-line" type="button" data-action="download-qr" data-payload="${esc(payload)}" data-name="${esc(reference || 'krungthai')}">บันทึกคิวอาร์</button>`}
+        </div>
+        <p class="fine">เลือกช่องทางใดก็ได้ โอนครบยอดแล้วแนบสลิปก่อนกดยืนยัน</p>
       </div>
     </section>`
 }
@@ -341,7 +368,7 @@ function shirtsPage() {
         </figure>
       </div>
       <ol class="wizard">
-        <li class="${step === 1 ? 'on' : 'done'}">1. ชื่อ เบอร์โทร และที่อยู่</li>
+        <li class="${step === 1 ? 'on' : 'done'}">1. ข้อมูลผู้จอง</li>
         <li class="${step === 2 ? 'on' : ''}">2. เลือกไซส์และจำนวน</li>
       </ol>
       ${step === 1 ? shirtInfoStep() : shirtSizeStep()}
@@ -351,11 +378,26 @@ function shirtsPage() {
 
 function shirtInfoStep() {
   const form = state.shirt
+  const delivery = form.pickup === 'จัดส่ง'
   return `
     <form class="panel" data-form="shirt-info">
       ${field('ชื่อ-นามสกุล', `<input id="shirt-name" data-bind="shirt.name" value="${esc(form.name)}" autocomplete="name" required>`)}
       ${field('เบอร์โทร', `<input id="shirt-phone" data-bind="shirt.phone" value="${esc(form.phone)}" inputmode="tel" autocomplete="tel" required>`)}
-      ${field('ที่อยู่', `<textarea id="shirt-address" data-bind="shirt.address" required>${esc(form.address)}</textarea>`, 'ใช้สำหรับจัดส่งเสื้อ')}
+      <fieldset class="field pickup-field">
+        <span>วิธีรับเสื้อ</span>
+        <div class="pickup-options">
+          <label class="pickup-option">
+            <input type="radio" name="shirt-pickup" data-bind="shirt.pickup" value="รับเอง"${form.pickup === 'รับเอง' ? ' checked' : ''}>
+            <span>รับเอง</span>
+          </label>
+          <label class="pickup-option">
+            <input type="radio" name="shirt-pickup" data-bind="shirt.pickup" value="จัดส่ง"${form.pickup === 'จัดส่ง' ? ' checked' : ''}>
+            <span>จัดส่ง</span>
+          </label>
+        </div>
+        <small>เลือกรับเองไม่ต้องกรอกที่อยู่ · เลือกจัดส่งต้องกรอกที่อยู่จัดส่ง</small>
+      </fieldset>
+      ${delivery ? field('ที่อยู่จัดส่ง', `<textarea id="shirt-address" data-bind="shirt.address" required>${esc(form.address)}</textarea>`, 'ระบุที่อยู่ให้ครบสำหรับจัดส่งพัสดุ') : ''}
       <button class="btn btn-dark" type="submit"${state.catalog.shirtOpen ? '' : ' disabled'}>ถัดไป เลือกไซส์</button>
     </form>`
 }
@@ -367,7 +409,7 @@ function shirtSizeStep() {
   const pieces = lines.reduce((sum, [, qty]) => sum + qty, 0)
   return `
     <form class="panel" data-form="shirt-sizes">
-      <p class="fine">${esc(form.name)} · ${esc(phoneDigits(form.phone))}<br>${esc(form.address)}</p>
+      <p class="fine">${esc(form.name)} · ${esc(phoneDigits(form.phone))} · ${esc(form.pickup || '-')}${form.pickup === 'จัดส่ง' && form.address ? `<br>${esc(form.address)}` : ''}</p>
       <p><button class="btn btn-line" type="button" data-action="shirt-back">แก้ไขข้อมูลผู้จอง</button></p>
       <div class="size-list">
         ${shirt.sizes.map((size) => {
@@ -404,7 +446,7 @@ function shirtPayModal() {
           ${state.shirt.slipData ? 'เปลี่ยนสลิป' : 'แนบสลิป'}
           <input type="file" accept="image/png,image/jpeg,image/webp" data-file="shirt">
         </label>
-        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}${state.shirt.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ยังไม่พบคิวอาร์'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิปให้เห็นคิวอาร์ชัดเจน ระบบจะตรวจอัตโนมัติเมื่อกดยืนยัน</p>'}
+        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}${state.shirt.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ยังไม่พบคิวอาร์'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิปให้เห็นคิวอาร์ชัดเจน ระบบจะส่งเข้ารอตรวจเมื่อกดยืนยัน</p>'}
         <div class="row-actions">
           <button class="btn btn-dark" type="button" data-action="confirm-transfer"${ready ? '' : ' disabled'}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการโอน'}</button>
           <button class="btn btn-line" type="button" data-action="close-pay">กลับไปแก้รายการ</button>
@@ -415,26 +457,37 @@ function shirtPayModal() {
 
 function receiptModel(kind, order) {
   const event = state.catalog.event
-  const slipNote = order.slipCheck && order.slipCheck.autoConfirm
-    ? 'ระบบตรวจสลิปอัตโนมัติผ่านแล้ว'
-    : order.slipCheck && order.slipCheck.ok
-      ? `แนบสลิปแล้ว · ${order.slipCheck.reason || 'รอผู้จัดงานยืนยัน'}`
-      : order.hasSlip
-        ? (order.slipCheck && order.slipCheck.reason) || 'แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ'
-        : 'ยังไม่ได้แนบสลิป สามารถแนบทีหลังได้ที่หน้าตรวจสอบการจอง'
+  const slipNote = order.status === 'pending'
+    ? (order.slipCheck && order.slipCheck.reason) || 'แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ'
+    : order.slipCheck && order.slipCheck.autoConfirm
+      ? 'ระบบตรวจสลิปอัตโนมัติผ่านแล้ว'
+      : order.slipCheck && order.slipCheck.ok
+        ? `แนบสลิปแล้ว · ${order.slipCheck.reason || 'รอผู้จัดงานยืนยัน'}`
+        : order.hasSlip
+          ? (order.slipCheck && order.slipCheck.reason) || 'แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ'
+          : 'ยังไม่ได้แนบสลิป สามารถแนบทีหลังได้ที่หน้าตรวจสอบการจอง'
   if (kind === 'shirt') {
     const pieces = order.items.reduce((sum, item) => sum + item.qty, 0)
+    const pickup = order.pickup || 'จัดส่ง'
+    const shipping = [['วิธีรับ', pickup]]
+    if (pickup === 'จัดส่ง') {
+      shipping.push(['ที่อยู่', order.address || '-'])
+      if (order.trackingNumber) shipping.push(['หมายเลขพัสดุ', order.trackingNumber])
+    }
     return {
+      kind,
+      kindLabel: 'เสื้อที่ระลึก',
       title: 'ใบยืนยันการจองเสื้อ',
       code: order.code,
+      status: order.status || 'confirmed',
       eventLine: `${event.faculty}`,
       themeLine: `${event.name} · ${event.theme}`,
-      fields: [
+      info: [
         ['ชื่อ', order.name],
         ['เบอร์โทร', order.phone],
-        ['ที่อยู่', order.address],
         ['วันที่จอง', when(order.createdAt)],
       ],
+      shipping,
       lines: [
         ...order.items.map((item) => [`ขนาด ${item.size} × ${item.qty}`, baht(item.price * item.qty)]),
         [`รวม ${pieces} ตัว`, baht(order.total)],
@@ -443,17 +496,20 @@ function receiptModel(kind, order) {
     }
   }
   return {
+    kind,
+    kindLabel: 'โต๊ะจีน',
     title: 'ใบยืนยันการจองโต๊ะ',
     code: order.code,
+    status: order.status || 'confirmed',
     eventLine: event.faculty,
     themeLine: `${event.name} · ${event.theme}`,
-      fields: [
-        ['ชื่อ', order.hostName],
-        ['รุ่น', order.generation],
-        ['เบอร์โทร', order.phone],
-        ['ที่อยู่', order.address],
-        ['วันที่จอง', when(order.createdAt)],
-      ],
+    info: [
+      ['ชื่อ', order.hostName],
+      ['รุ่น', order.generation],
+      ['เบอร์โทร', order.phone],
+      ['วันที่จอง', when(order.createdAt)],
+    ],
+    shipping: order.address ? [['ที่อยู่ติดต่อ', order.address]] : [],
     lines: [
       [`${order.tableCount} โต๊ะ · ${order.seats} ท่าน`, baht(order.total)],
     ],
@@ -461,31 +517,63 @@ function receiptModel(kind, order) {
   }
 }
 
+function receiptFacts(rows) {
+  if (!rows || !rows.length) return ''
+  return `<dl class="receipt-facts">${rows.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value || '-')}</dd></div>`).join('')}</dl>`
+}
+
 function bookingReceipt(kind, order) {
   const model = receiptModel(kind, order)
   return `
-    <main><div class="wrap">
+    <main><div class="wrap receipt-page">
+      <p class="alert ok no-print">จองเสร็จแล้ว · เก็บรหัส <strong>${esc(model.code)}</strong> ไว้ตรวจสอบสถานะ</p>
       <article class="receipt">
         <header class="receipt-head">
           <p class="kicker">${esc(model.eventLine)}</p>
           <h2>${esc(model.title)}</h2>
           <p>${esc(model.themeLine)}</p>
           <p class="code">${esc(model.code)}</p>
+          <p><span class="pill ${esc(model.status)}">${statusText(model.status)}</span></p>
         </header>
-        <dl>
-          ${model.fields.map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')}
-        </dl>
-        <div class="receipt-items">
-          ${model.lines.map(([label, value], index) => `<div class="line"><span>${esc(label)}</span><${index === model.lines.length - 1 ? 'strong' : 'span'}>${esc(value)}</${index === model.lines.length - 1 ? 'strong' : 'span'}></div>`).join('')}
-        </div>
-        <p class="fine">${esc(model.note)}</p>
+
+        <section class="receipt-section">
+          <h3>ข้อมูลผู้จอง</h3>
+          ${receiptFacts(model.info)}
+        </section>
+
+        ${model.shipping.length ? `
+        <section class="receipt-section">
+          <h3>${kind === 'shirt' ? 'การรับเสื้อ' : 'ที่อยู่ติดต่อ'}</h3>
+          ${receiptFacts(model.shipping)}
+        </section>` : ''}
+
+        <section class="receipt-section">
+          <h3>รายการ</h3>
+          <div class="receipt-items">
+            ${model.lines.map(([label, value], index) => {
+              const last = index === model.lines.length - 1
+              return `<div class="line${last ? ' receipt-total' : ''}"><span>${esc(label)}</span><${last ? 'strong' : 'span'}>${esc(value)}</${last ? 'strong' : 'span'}></div>`
+            }).join('')}
+          </div>
+        </section>
+
+        <section class="receipt-section receipt-note">
+          <h3>สถานะสลิป</h3>
+          <p class="fine">${esc(model.note)}</p>
+        </section>
       </article>
-      <div class="row-actions no-print">
-        <button class="btn btn-dark" type="button" data-action="save-receipt" data-kind="${kind}">บันทึกรูปภาพ</button>
-        <button class="btn btn-dark" type="button" data-action="save-receipt-pdf" data-kind="${kind}">บันทึก PDF</button>
-        <button class="btn btn-line" type="button" data-action="print">พิมพ์ใบยืนยัน</button>
-        <button class="btn btn-line" type="button" data-action="copy" data-value="${esc(order.code)}">คัดลอกรหัส</button>
-        <button class="btn btn-line" type="button" data-action="again" data-kind="${kind}">จองรายการใหม่</button>
+
+      <div class="receipt-actions no-print">
+        <div class="row-actions">
+          <button class="btn btn-dark" type="button" data-action="save-receipt" data-kind="${kind}">บันทึกรูปภาพ</button>
+          <button class="btn btn-dark" type="button" data-action="save-receipt-pdf" data-kind="${kind}">บันทึก PDF</button>
+          <button class="btn btn-line" type="button" data-action="print">พิมพ์ใบยืนยัน</button>
+        </div>
+        <div class="row-actions">
+          <button class="btn btn-line" type="button" data-action="copy" data-value="${esc(order.code)}">คัดลอกรหัส</button>
+          <a class="btn btn-line" href="#/lookup">ตรวจสอบการจอง</a>
+          <button class="btn btn-line" type="button" data-action="again" data-kind="${kind}">จองรายการใหม่</button>
+        </div>
       </div>
     </div></main>`
 }
@@ -539,7 +627,7 @@ function tablePayModal() {
           ${state.table.slipData ? 'เปลี่ยนรูปสลิป' : 'แนบรูปสลิป'}
           <input type="file" accept="image/png,image/jpeg,image/webp" data-file="table">
         </label>
-        ${state.table.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.table.slipName)}${state.table.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ยังไม่พบคิวอาร์'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.table.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิปให้เห็นคิวอาร์ชัดเจน ระบบจะตรวจอัตโนมัติเมื่อกดยืนยัน</p>'}
+        ${state.table.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.table.slipName)}${state.table.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ยังไม่พบคิวอาร์'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.table.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิปให้เห็นคิวอาร์ชัดเจน ระบบจะส่งเข้ารอตรวจเมื่อกดยืนยัน</p>'}
         <div class="row-actions">
           <button class="btn btn-dark" type="button" data-action="confirm-table"${ready ? '' : ' disabled'}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการชำระเงิน'}</button>
           <button class="btn btn-line" type="button" data-action="close-table-pay">กลับไปแก้รายการ</button>
@@ -568,23 +656,64 @@ function lookupPage() {
 function renderLookup() {
   const { shirts, tables } = state.lookup
   if (!shirts.length && !tables.length) return `<p class="panel">ยังไม่พบรายการของเบอร์นี้</p>`
-  const shirtCards = shirts.map((order) => orderCard(order, order.items.map((item) => `ขนาด ${item.size} × ${item.qty}`).join(', '))).join('')
-  const tableCards = tables.map((order) => orderCard(order, `${order.tableCount} โต๊ะ · ${order.seats} ท่าน`)).join('')
-  return `<div class="section">${shirtCards}${tableCards}</div>`
+  return `
+    <div class="booking-results">
+      ${shirts.length ? `
+        <section class="booking-group">
+          <h3>เสื้อที่ระลึก · ${shirts.length} รายการ</h3>
+          ${shirts.map((order) => orderCard('shirt', order)).join('')}
+        </section>` : ''}
+      ${tables.length ? `
+        <section class="booking-group">
+          <h3>โต๊ะจีน · ${tables.length} รายการ</h3>
+          ${tables.map((order) => orderCard('table', order)).join('')}
+        </section>` : ''}
+    </div>`
 }
 
-function orderCard(order, detail) {
+function orderCard(kind, order) {
   const canSlip = order.status !== 'cancelled'
+  const needPay = canSlip && !order.hasSlip
+  const pickup = order.pickup || ''
+  const detail = kind === 'shirt'
+    ? order.items.map((item) => `ขนาด ${item.size} × ${item.qty}`).join(' · ')
+    : `${order.tableCount} โต๊ะ · ${order.seats} ท่าน`
+  const who = kind === 'shirt' ? order.name : order.hostName
   return `
-    <article class="panel" style="margin-bottom:16px">
-      <p class="kicker">${esc(order.code)}</p>
-      <p><span class="pill ${esc(order.status)}">${statusText(order.status)}</span></p>
-      <p>${esc(detail)}</p>
-      <p class="total">${baht(order.total)}</p>
-      <p class="fine">${when(order.createdAt)}${order.hasSlip ? ' · มีสลิปแล้ว' : ' · ยังไม่มีสลิป'}</p>
-      ${canSlip ? `<label class="field"><span>${order.hasSlip ? 'เปลี่ยนสลิป' : 'อัปโหลดสลิป'}</span><input type="file" accept="image/png,image/jpeg,image/webp" data-slip-code="${esc(order.code)}"></label>` : ''}
-      ${order.status !== 'cancelled' ? paymentCard(order.total, order.code) : ''}
-    </article>`
+    <details class="booking-card">
+      <summary class="booking-summary">
+        <div class="booking-summary-main">
+          <p class="booking-code">${esc(order.code)}</p>
+          <p class="booking-summary-name">${esc(who || '-')}</p>
+          <p class="booking-summary-phone">${esc(order.phone || '-')}</p>
+        </div>
+        <div class="booking-summary-side">
+          <span class="pill ${esc(order.status)}">${statusText(order.status)}</span>
+          <span class="booking-more"></span>
+        </div>
+      </summary>
+      <div class="booking-detail">
+        <dl class="receipt-facts">
+          <div><dt>ประเภท</dt><dd>${kind === 'shirt' ? 'เสื้อที่ระลึก' : 'โต๊ะจีน'}</dd></div>
+          ${kind === 'table' && order.generation ? `<div><dt>รุ่น</dt><dd>${esc(order.generation)}</dd></div>` : ''}
+          ${pickup ? `<div><dt>วิธีรับ</dt><dd>${esc(pickup)}</dd></div>` : ''}
+          ${pickup === 'จัดส่ง' && order.address ? `<div><dt>ที่อยู่</dt><dd>${esc(order.address)}</dd></div>` : ''}
+          ${order.trackingNumber ? `<div><dt>หมายเลขพัสดุ</dt><dd>${esc(order.trackingNumber)}</dd></div>` : ''}
+          <div><dt>รายการ</dt><dd>${esc(detail)}</dd></div>
+          <div><dt>ยอดรวม</dt><dd><strong>${baht(order.total)}</strong></dd></div>
+          <div><dt>วันเวลา</dt><dd>${esc(when(order.createdAt))}</dd></div>
+          <div><dt>สลิป</dt><dd>${order.hasSlip ? 'แนบแล้ว' : 'ยังไม่มี'}</dd></div>
+        </dl>
+        ${canSlip ? `
+          <div class="booking-card-actions">
+            <label class="btn btn-line slip-btn">${order.hasSlip ? 'เปลี่ยนสลิป' : 'อัปโหลดสลิป'}
+              <input type="file" accept="image/png,image/jpeg,image/webp" data-slip-code="${esc(order.code)}">
+            </label>
+            <button class="btn btn-line" type="button" data-action="copy" data-value="${esc(order.code)}">คัดลอกรหัส</button>
+          </div>` : ''}
+        ${needPay ? `<details class="booking-pay"><summary>แสดงคิวอาร์ชำระเงิน</summary>${paymentCard(order.total, order.code)}</details>` : ''}
+      </div>
+    </details>`
 }
 
 function adminPage() {
@@ -612,19 +741,26 @@ function adminPage() {
       ${state.error ? `<p class="alert">${esc(state.error)}</p>` : ''}
       ${adminStats(data)}
       <div class="filters">
-        ${['pending', 'confirmed', 'cancelled', 'all'].map((item) => `<button class="btn btn-line" type="button" data-action="filter" data-filter="${item}" aria-pressed="${state.admin.filter === item}">${item === 'all' ? 'ทั้งหมด' : statusText(item)}</button>`).join('')}
-        <button class="btn btn-line" type="button" data-action="export">ส่งออก CSV</button>
-        <button class="btn btn-line" type="button" data-action="export-pdf">ส่งออก PDF</button>
+        ${['all', 'pending', 'confirmed', 'cancelled'].map((item) => `<button class="btn btn-line" type="button" data-action="filter" data-filter="${item}" aria-pressed="${state.admin.filter === item}">${item === 'all' ? 'ทั้งหมด' : statusText(item)}</button>`).join('')}
         <button class="btn btn-line" type="button" data-action="sheets-sync">ซิงก์ไป Google Sheets</button>
       </div>
-      <section class="panel"><h3>เสื้อ</h3>${bookingTable('shirt', data.shirts)}</section>
+      <label class="field admin-search">
+        <span>ค้นหา</span>
+        <input type="search" data-bind="admin.query" value="${esc(state.admin.query)}" placeholder="ชื่อ เบอร์โทร หรือรหัสจอง" autocomplete="off">
+      </label>
+      <section class="panel"><h3>เสื้อ · จัดส่ง</h3>${bookingTable('shirt', data.shirts.filter((row) => (row.pickup || 'จัดส่ง') === 'จัดส่ง'))}</section>
+      <section class="panel" style="margin-top:16px"><h3>เสื้อ · รับเอง</h3>${bookingTable('shirt', data.shirts.filter((row) => row.pickup === 'รับเอง'))}</section>
       <section class="panel" style="margin-top:16px"><h3>โต๊ะ</h3>${bookingTable('table', data.tables)}</section>
+      ${state.admin.slipZoom ? slipZoomModal(state.admin.slipZoom) : ''}
     </div></main>`
 }
 
 function adminStats(data) {
   const shirts = data.shirts.filter((row) => row.status !== 'cancelled')
   const tables = data.tables.filter((row) => row.status !== 'cancelled')
+  const delivery = shirts.filter((row) => (row.pickup || 'จัดส่ง') === 'จัดส่ง')
+  const pickup = shirts.filter((row) => row.pickup === 'รับเอง')
+  const pieces = shirts.reduce((sum, row) => sum + row.items.reduce((inner, item) => inner + item.qty, 0), 0)
   const tally = {}
   shirts.forEach((row) => row.items.forEach((item) => { tally[item.size] = (tally[item.size] || 0) + item.qty }))
   const sizeLines = state.catalog.shirt.sizes.map((size) => (
@@ -634,7 +770,8 @@ function adminStats(data) {
     <div class="admin-stats">
       <article class="stat">
         <p class="kicker">เสื้อที่สั่ง</p>
-        <p class="total">${shirts.reduce((sum, row) => sum + row.items.reduce((inner, item) => inner + item.qty, 0), 0)}</p>
+        <p class="total">${pieces}</p>
+        <p class="fine">จัดส่ง ${delivery.length} · รับเอง ${pickup.length} รายการ</p>
         <ul class="size-lines">${sizeLines}</ul>
       </article>
       <article class="stat"><p class="kicker">โต๊ะที่จอง</p><p class="total">${tables.reduce((sum, row) => sum + row.tableCount, 0)}</p></article>
@@ -645,26 +782,57 @@ function adminStats(data) {
 function bookingTable(kind, rows) {
   const visible = filteredAdminRows(rows)
   if (!visible.length) return `<p class="fine">ไม่มีรายการในสถานะนี้</p>`
-  const body = visible.map((row) => {
+  return `<div class="booking-results">${visible.map((row) => {
     const who = kind === 'shirt' ? row.name : row.hostName
     const detail = kind === 'shirt'
       ? `<ul class="size-lines">${row.items.map((item) => `<li><span>${esc(item.size)}</span><strong>× ${item.qty}</strong></li>`).join('')}</ul>`
       : `${row.tableCount} โต๊ะ`
+    const pickup = kind === 'shirt' ? (row.pickup || 'จัดส่ง') : ''
+    const tracking = kind === 'shirt' && pickup === 'จัดส่ง'
+      ? `<div class="tracking-box">
+          <input type="text" data-tracking-id="${esc(row.id)}" value="${esc(row.trackingNumber || '')}" placeholder="หมายเลขพัสดุ" aria-label="หมายเลขพัสดุ ${esc(row.code)}">
+          <button class="btn btn-line" type="button" data-action="save-tracking" data-id="${esc(row.id)}">บันทึกพัสดุ</button>
+        </div>`
+      : ''
     const slip = row.slipData
-      ? `<img class="slip-preview" alt="สลิป ${esc(row.code)}" src="${esc(row.slipData)}">${row.slipCheck ? `<p class="fine">${esc(row.slipCheck.autoConfirm ? 'ตรวจสลิปผ่าน (อัตโนมัติ)' : row.slipCheck.reason || '')}</p>` : ''}`
+      ? `<button class="slip-thumb" type="button" data-action="zoom-slip" data-src="${esc(row.slipData)}" title="กดเพื่อขยายสลิป">
+          <img class="slip-preview" alt="สลิป ${esc(row.code)}" src="${esc(row.slipData)}">
+          <span class="fine">กดเพื่อขยาย</span>
+        </button>${row.slipCheck ? `<p class="fine">${esc(row.slipCheck.reason || '')}</p>` : ''}`
       : 'ไม่มีสลิป'
-    return `<tr>
-      <td>${esc(row.code)}<br><span class="pill ${esc(row.status)}">${statusText(row.status)}</span></td>
-      <td>${esc(who)}<br>${esc(row.generation || '')}<br>${esc(row.phone)}</td>
-      <td>${detail}<div class="line-gap">${baht(row.total)}</div>${row.address ? `<p class="fine">${esc(row.address)}</p>` : ''}${row.guests || row.note ? `<p class="fine">${esc(row.guests || '')} ${esc(row.note || '')}</p>` : ''}</td>
-      <td>${slip}</td>
-      <td class="admin-actions">
-        <button class="btn btn-line" type="button" data-action="status" data-kind="${kind}" data-id="${esc(row.id)}" data-status="confirmed">ยืนยัน</button>
-        <button class="btn btn-line" type="button" data-action="status" data-kind="${kind}" data-id="${esc(row.id)}" data-status="cancelled">ยกเลิก</button>
-      </td>
-    </tr>`
-  }).join('')
-  return `<div class="table-wrap"><table><thead><tr><th>รหัส</th><th>ผู้จอง</th><th>รายการ</th><th>สลิป</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`
+    return `
+      <details class="booking-card">
+        <summary class="booking-summary">
+          <div class="booking-summary-main">
+            <p class="booking-code">${esc(row.code)}</p>
+            <p class="booking-summary-name">${esc(who || '-')}</p>
+            <p class="booking-summary-phone">${esc(row.phone || '-')}</p>
+          </div>
+          <div class="booking-summary-side">
+            <span class="pill ${esc(row.status)}">${statusText(row.status)}</span>
+            <span class="booking-more"></span>
+          </div>
+        </summary>
+        <div class="booking-detail">
+          <dl class="receipt-facts">
+            ${kind === 'table' && row.generation ? `<div><dt>รุ่น</dt><dd>${esc(row.generation)}</dd></div>` : ''}
+            ${pickup ? `<div><dt>วิธีรับ</dt><dd>${esc(pickup)}</dd></div>` : ''}
+            ${pickup === 'จัดส่ง' && row.address ? `<div><dt>ที่อยู่</dt><dd>${esc(row.address)}</dd></div>` : ''}
+            ${row.trackingNumber ? `<div><dt>หมายเลขพัสดุ</dt><dd>${esc(row.trackingNumber)}</dd></div>` : ''}
+            <div><dt>รายการ</dt><dd>${detail}</dd></div>
+            <div><dt>ยอดรวม</dt><dd><strong>${baht(row.total)}</strong></dd></div>
+            <div><dt>วันเวลา</dt><dd>${esc(when(row.createdAt))}</dd></div>
+            ${row.guests || row.note ? `<div><dt>หมายเหตุ</dt><dd>${esc(row.guests || '')} ${esc(row.note || '')}</dd></div>` : ''}
+            <div><dt>สลิป</dt><dd>${slip}</dd></div>
+          </dl>
+          ${tracking}
+          <div class="admin-actions booking-card-actions">
+            <button class="btn btn-line" type="button" data-action="status" data-kind="${kind}" data-id="${esc(row.id)}" data-status="confirmed">ยืนยัน</button>
+            <button class="btn btn-line" type="button" data-action="status" data-kind="${kind}" data-id="${esc(row.id)}" data-status="cancelled">ยกเลิก</button>
+          </div>
+        </div>
+      </details>`
+  }).join('')}</div>`
 }
 
 function mountQrs() {
@@ -843,7 +1011,7 @@ async function placeShirtOrder() {
     return
   }
   if (!form.slipQr) {
-    return rejectSlip('shirt', 'ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน')
+    return rejectSlip('shirt', 'รูปที่แนบไม่ใช่สลิป หรือไม่พบคิวอาร์ กรุณาแนบสลิปใหม่')
   }
   state.busy = true
   state.error = ''
@@ -854,7 +1022,8 @@ async function placeShirtOrder() {
       body: JSON.stringify({
         name: form.name,
         phone: phoneDigits(form.phone),
-        address: form.address,
+        pickup: form.pickup,
+        address: form.pickup === 'จัดส่ง' ? form.address : '',
         items,
         slipData: form.slipData,
         slipName: form.slipName,
@@ -864,10 +1033,10 @@ async function placeShirtOrder() {
     const order = data.order
     state.shirt = blankShirt()
     state.shirt.success = order
-    toast('ตรวจสลิปผ่านแล้ว')
+    toast('บันทึกแล้ว รอผู้จัดงานตรวจสอบ')
     state.catalog = await api('/api/public')
   } catch (error) {
-    rejectSlip('shirt', error.message || 'สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่')
+    rejectSlip('shirt', error.message || 'รูปที่แนบไม่ใช่สลิป กรุณาแนบสลิปใหม่')
     return
   } finally {
     state.busy = false
@@ -882,7 +1051,9 @@ function goShirtInfo(event) {
   const form = state.shirt
   if (form.name.trim().length < 2) return fail('กรุณากรอกชื่อ-นามสกุล')
   if (!validPhone(form.phone)) return fail('กรุณากรอกเบอร์โทรให้ถูกต้อง')
-  if (form.address.trim().length < 8) return fail('กรุณากรอกที่อยู่')
+  if (form.pickup !== 'รับเอง' && form.pickup !== 'จัดส่ง') return fail('กรุณาเลือกวิธีรับเสื้อ รับเอง หรือจัดส่ง')
+  if (form.pickup === 'จัดส่ง' && form.address.trim().length < 8) return fail('กรุณากรอกที่อยู่จัดส่ง')
+  if (form.pickup === 'รับเอง') form.address = ''
   state.error = ''
   state.shirt.step = 2
   render()
@@ -928,7 +1099,7 @@ async function placeTableOrder() {
     return
   }
   if (!form.slipQr) {
-    return rejectSlip('table', 'ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน')
+    return rejectSlip('table', 'รูปที่แนบไม่ใช่สลิป หรือไม่พบคิวอาร์ กรุณาแนบสลิปใหม่')
   }
   state.busy = true
   state.error = ''
@@ -950,10 +1121,10 @@ async function placeTableOrder() {
     const booking = data.booking
     state.table = blankTable()
     state.table.success = booking
-    toast('ตรวจสลิปผ่านแล้ว')
+    toast('บันทึกแล้ว รอผู้จัดงานตรวจสอบ')
     state.catalog = await api('/api/public')
   } catch (error) {
-    rejectSlip('table', error.message || 'สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่')
+    rejectSlip('table', error.message || 'รูปที่แนบไม่ใช่สลิป กรุณาแนบสลิปใหม่')
     return
   } finally {
     state.busy = false
@@ -1004,59 +1175,30 @@ async function loadAdmin() {
   render()
 }
 
-function exportCsv() {
-  const data = state.admin.bookings
-  if (!data) return
-  const rows = [['ประเภท', 'รหัส', 'สถานะ', 'ชื่อ', 'รุ่น', 'เบอร์', 'รายการ', 'ยอด', 'ที่อยู่', 'หมายเหตุ', 'เวลา']]
-  filteredAdminRows(data.shirts).forEach((row) => rows.push(['เสื้อ', row.code, statusText(row.status), row.name, row.generation, row.phone, row.items.map((item) => `${item.size}x${item.qty}`).join(' '), row.total, row.address || '', row.note || '', row.createdAt]))
-  filteredAdminRows(data.tables).forEach((row) => rows.push(['โต๊ะ', row.code, statusText(row.status), row.hostName, row.generation, row.phone, `${row.tableCount} โต๊ะ`, row.total, row.address || '', row.note || '', row.createdAt]))
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
-  downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }), 'bookings.csv')
-  toast('ส่งออก CSV แล้ว')
+function slipZoomModal(src) {
+  return `
+    <div class="modal-back slip-zoom-back" data-action="close-slip-zoom">
+      <div class="slip-zoom-modal" role="dialog" aria-modal="true" aria-label="ขยายสลิป">
+        <button class="btn btn-line slip-zoom-close" type="button" data-action="close-slip-zoom">ปิด</button>
+        <img src="${esc(src)}" alt="สลิปขยาย">
+      </div>
+    </div>`
 }
 
 function filteredAdminRows(rows) {
-  return rows.filter((row) => state.admin.filter === 'all' || row.status === state.admin.filter).slice().reverse()
-}
-
-function adminPdfLines(data) {
-  const shirts = filteredAdminRows(data.shirts)
-  const tables = filteredAdminRows(data.tables)
-  const filterLabel = state.admin.filter === 'all' ? 'ทั้งหมด' : statusText(state.admin.filter)
-  const lines = [
-    { text: state.catalog.event.faculty, style: 'kicker' },
-    { text: 'รายการจองทั้งหมด', style: 'title' },
-    { text: `${state.catalog.event.name} · ${state.catalog.event.theme}`, style: 'muted' },
-    { text: `สถานะที่ส่งออก: ${filterLabel} · ${when(new Date().toISOString())}`, style: 'muted' },
-    { text: `เสื้อ ${shirts.length} รายการ · โต๊ะ ${tables.length} รายการ`, style: 'body' },
-    { text: '', style: 'gap' },
-    { text: 'เสื้อที่ระลึก', style: 'section' },
-  ]
-  if (!shirts.length) lines.push({ text: 'ไม่มีรายการเสื้อในสถานะนี้', style: 'muted' })
-  shirts.forEach((row) => {
-    lines.push({
-      text: `${row.code} · ${statusText(row.status)} · ${row.name} · ${row.phone}`,
-      style: 'row',
-    })
-    lines.push({
-      text: `${row.items.map((item) => `${item.size}×${item.qty}`).join(' · ')} · ${baht(row.total)}${row.address ? ` · ${row.address}` : ''}`,
-      style: 'detail',
-    })
-  })
-  lines.push({ text: '', style: 'gap' })
-  lines.push({ text: 'โต๊ะจีน', style: 'section' })
-  if (!tables.length) lines.push({ text: 'ไม่มีรายการโต๊ะในสถานะนี้', style: 'muted' })
-  tables.forEach((row) => {
-    lines.push({
-      text: `${row.code} · ${statusText(row.status)} · ${row.hostName} · รุ่น ${row.generation || '-'} · ${row.phone}`,
-      style: 'row',
-    })
-    lines.push({
-      text: `${row.tableCount} โต๊ะ · ${row.seats} ท่าน · ${baht(row.total)}${row.address ? ` · ${row.address}` : ''}`,
-      style: 'detail',
-    })
-  })
-  return lines
+  const query = String(state.admin.query || '').trim().toLowerCase()
+  const digitsQuery = digits(state.admin.query || '')
+  return rows.filter((row) => {
+    if (state.admin.filter !== 'all' && row.status !== state.admin.filter) return false
+    if (!query) return true
+    const who = String(row.name || row.hostName || '').toLowerCase()
+    const phone = String(row.phone || '')
+    const code = String(row.code || '').toLowerCase()
+    const tracking = String(row.trackingNumber || '').toLowerCase()
+    if (who.includes(query) || code.includes(query) || tracking.includes(query)) return true
+    if (digitsQuery && phone.includes(digitsQuery)) return true
+    return false
+  }).slice().reverse()
 }
 
 async function syncGoogleSheets() {
@@ -1077,87 +1219,6 @@ async function syncGoogleSheets() {
   } finally {
     state.busy = false
     render(true)
-  }
-}
-
-async function exportBookingsPdf() {
-  const data = state.admin.bookings
-  if (!data) return
-  try {
-    await document.fonts.ready
-    const content = adminPdfLines(data)
-    const pageWidth = 1240
-    const pageHeight = 1754
-    const margin = 56
-    const pages = []
-    let canvas = document.createElement('canvas')
-    canvas.width = pageWidth
-    canvas.height = pageHeight
-    let ctx = canvas.getContext('2d')
-    let y = 0
-
-    const startPage = () => {
-      canvas = document.createElement('canvas')
-      canvas.width = pageWidth
-      canvas.height = pageHeight
-      ctx = canvas.getContext('2d')
-      ctx.fillStyle = '#f7f3ea'
-      ctx.fillRect(0, 0, pageWidth, pageHeight)
-      ctx.fillStyle = '#10241c'
-      ctx.fillRect(0, 0, pageWidth, 18)
-      y = 70
-    }
-
-    const finishPage = () => {
-      pages.push({
-        jpegBytes: dataUrlToBytes(canvas.toDataURL('image/jpeg', 0.92)),
-        width: pageWidth,
-        height: pageHeight,
-      })
-    }
-
-    const drawLine = (item) => {
-      const styles = {
-        kicker: { font: '600 24px Sarabun, Thonburi, sans-serif', color: '#c6a15b', gap: 34 },
-        title: { font: '600 44px "Noto Serif Thai", Thonburi, serif', color: '#1c2822', gap: 54 },
-        section: { font: '700 30px Sarabun, Thonburi, sans-serif', color: '#10241c', gap: 42 },
-        body: { font: '600 24px Sarabun, Thonburi, sans-serif', color: '#1c2822', gap: 36 },
-        row: { font: '600 24px Sarabun, Thonburi, sans-serif', color: '#1c2822', gap: 32 },
-        detail: { font: '400 22px Sarabun, Thonburi, sans-serif', color: '#5d6b63', gap: 34 },
-        muted: { font: '400 22px Sarabun, Thonburi, sans-serif', color: '#5d6b63', gap: 32 },
-        gap: { font: '400 22px Sarabun, Thonburi, sans-serif', color: '#5d6b63', gap: 24 },
-      }
-      const style = styles[item.style] || styles.body
-      ctx.font = style.font
-      if (!item.text) {
-        y += style.gap
-        return
-      }
-      const wrapped = wrapCanvasText(ctx, item.text, pageWidth - margin * 2)
-      const lineHeight = style.gap - 6
-      if (y + wrapped.length * lineHeight > pageHeight - margin) {
-        finishPage()
-        startPage()
-        ctx.font = style.font
-      }
-      ctx.fillStyle = style.color
-      ctx.textAlign = 'left'
-      wrapped.forEach((line) => {
-        ctx.fillText(line, margin, y)
-        y += lineHeight
-      })
-      y += 10
-    }
-
-    startPage()
-    content.forEach(drawLine)
-    finishPage()
-    const pdf = imagesToPdf(pages)
-    const stamp = new Date().toISOString().slice(0, 10)
-    downloadBlob(new Blob([pdf], { type: 'application/pdf' }), `รายการจอง-${stamp}.pdf`)
-    toast('ส่งออก PDF แล้ว')
-  } catch {
-    toast('ส่งออก PDF ไม่สำเร็จ')
   }
 }
 
@@ -1246,14 +1307,6 @@ function onClick(event) {
     render()
     return
   }
-  if (action === 'export') {
-    exportCsv()
-    return
-  }
-  if (action === 'export-pdf') {
-    exportBookingsPdf()
-    return
-  }
   if (action === 'sheets-sync') {
     syncGoogleSheets()
     return
@@ -1263,6 +1316,21 @@ function onClick(event) {
     state.admin.bookings = null
     sessionStorage.removeItem('niti-admin')
     render()
+    return
+  }
+  if (action === 'zoom-slip') {
+    state.admin.slipZoom = el.dataset.src || ''
+    render(true)
+    return
+  }
+  if (action === 'close-slip-zoom') {
+    if (el.classList.contains('slip-zoom-back') && event.target !== el) return
+    state.admin.slipZoom = ''
+    render(true)
+    return
+  }
+  if (action === 'save-tracking') {
+    saveTracking(el.dataset.id)
     return
   }
   if (action === 'status') {
@@ -1301,7 +1369,8 @@ async function buildReceiptCanvas(kind) {
   const width = 900
   const ctx = canvas.getContext('2d')
   ctx.font = '400 28px Sarabun, Thonburi, sans-serif'
-  const fieldLines = model.fields.flatMap(([label, value]) => {
+  const factRows = [...(model.info || []), ...(model.shipping || [])]
+  const fieldLines = factRows.flatMap(([label, value]) => {
     const wrapped = wrapCanvasText(ctx, value, 760)
     return [[label, wrapped[0]], ...wrapped.slice(1).map((line) => ['', line])]
   })
@@ -1480,6 +1549,7 @@ function onInput(event) {
   }
   if (!el.dataset.bind || el.type === 'checkbox' || el.type === 'radio') return
   bindValue(el)
+  if (el.dataset.bind === 'admin.query') render(true)
 }
 
 function onChange(event) {
@@ -1495,18 +1565,18 @@ function onChange(event) {
       state[el.dataset.file].slipQr = slipQr || ''
       state.error = slipQr
         ? ''
-        : 'ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน'
+        : 'รูปที่แนบไม่ใช่สลิป หรือไม่พบคิวอาร์ กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน'
       render(true)
     })
   }
   if (el.dataset.slipCode) {
     readSlip(el.files[0], async (slipData, slipName, slipQr) => {
       if (!slipQr) {
-        fail('ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน')
+        fail('รูปที่แนบไม่ใช่สลิป หรือไม่พบคิวอาร์ กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน')
         return
       }
       try {
-        const result = await api('/api/slip', {
+        await api('/api/slip', {
           method: 'POST',
           body: JSON.stringify({
             code: el.dataset.slipCode,
@@ -1516,13 +1586,13 @@ function onChange(event) {
             slipQr: slipQr || '',
           }),
         })
-        toast('ตรวจสลิปผ่านแล้ว')
+        toast('แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ')
         const data = await api('/api/lookup', { method: 'POST', body: JSON.stringify({ phone: phoneDigits(state.lookup.phone) }) })
         state.lookup.shirts = data.shirts
         state.lookup.tables = data.tables
         render(true)
       } catch (error) {
-        fail(error.message || 'สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่')
+        fail(error.message || 'รูปที่แนบไม่ใช่สลิป กรุณาแนบสลิปใหม่')
       }
     })
   }
@@ -1545,6 +1615,27 @@ async function updateStatus(kind, id, status) {
       headers: { 'X-Admin-Token': state.admin.token },
       body: JSON.stringify({ kind, id, status }),
     })
+    await loadAdmin()
+  } catch (error) {
+    if (String(error.message).includes('รหัสผู้ดูแล')) {
+      state.admin.token = ''
+      sessionStorage.removeItem('niti-admin')
+    }
+    state.error = error.message
+    render()
+  }
+}
+
+async function saveTracking(id) {
+  const input = document.querySelector(`[data-tracking-id="${CSS.escape(id)}"]`)
+  const trackingNumber = input ? input.value.trim() : ''
+  try {
+    await api('/api/admin/tracking', {
+      method: 'POST',
+      headers: { 'X-Admin-Token': state.admin.token },
+      body: JSON.stringify({ id, trackingNumber }),
+    })
+    toast('บันทึกหมายเลขพัสดุแล้ว')
     await loadAdmin()
   } catch (error) {
     if (String(error.message).includes('รหัสผู้ดูแล')) {

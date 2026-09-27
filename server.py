@@ -46,6 +46,7 @@ FILES = {
     "/logo.jpg": ("public/logo.jpg", "image/jpeg"),
     "/shirt-sample.jpg": ("public/shirt-sample.jpg", "image/jpeg"),
     "/size-chart.jpg": ("public/size-chart.jpg", "image/jpeg"),
+    "/payment-qr.png": ("public/payment-qr.png", "image/png"),
 }
 
 
@@ -128,10 +129,11 @@ def find_amounts(text):
     return found
 
 
-def account_matches(digits, payment):
+def account_matches(digits, payment, text=""):
     account = re.sub(r"\D", "", str(payment.get("accountNumber") or ""))
     bank_code = re.sub(r"\D", "", str(payment.get("bankCode") or ""))
     prompt_pay = re.sub(r"\D", "", str(payment.get("promptPay") or ""))
+    raw = str(text or "")
     if account:
         if account in digits or (len(account) >= 6 and account[-6:] in digits) or (len(account) >= 4 and account[-4:] in digits):
             return True
@@ -143,11 +145,18 @@ def account_matches(digits, payment):
         mobile = "0066" + prompt_pay.lstrip("0")
         if mobile in digits:
             return True
+    name = str(payment.get("accountName") or "").strip()
+    if name and name in raw:
+        return True
+    for hint in payment.get("slipHints") or []:
+        hint = str(hint or "").strip()
+        if hint and hint.lower() in raw.lower():
+            return True
     return False
 
 
 def verify_slip_qr(qr_text, expected_amount, payment):
-    """ตรวจคิวอาร์บนสลิปเทียบยอดและเลขบัญชี — ผ่านเฉพาะเมื่อข้อมูลตรง"""
+    """ตรวจว่าเป็นสลิป (มีคิวอาร์) — ผ่านแล้วรอผู้จัดงานยืนยัน ไม่ auto-confirm"""
     text = str(qr_text or "").strip()
     result = {
         "ok": False,
@@ -158,7 +167,7 @@ def verify_slip_qr(qr_text, expected_amount, payment):
         "checkedAt": datetime.now(timezone.utc).isoformat(),
     }
     if not text:
-        result["reason"] = "ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน"
+        result["reason"] = "รูปที่แนบไม่ใช่สลิป หรือไม่พบคิวอาร์ กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน"
         return result
 
     digits = re.sub(r"\D", "", text)
@@ -176,14 +185,14 @@ def verify_slip_qr(qr_text, expected_amount, payment):
                 amount = None
         result["method"] = "emv-qr"
         if crc_ok is False:
-            result["reason"] = "คิวอาร์บนสลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่"
-            return result
+            result["method"] = "qr-text"
     else:
         result["method"] = "qr-text"
 
     expected = float(expected_amount or 0)
     if amount is None:
-        for value in find_amounts(text):
+        candidates = find_amounts(text)
+        for value in candidates:
             if abs(value - expected) < 0.009:
                 amount = value
                 break
@@ -192,34 +201,34 @@ def verify_slip_qr(qr_text, expected_amount, payment):
             expected_money = f"{expected:.2f}"
             if expected_money in text or re.search(rf"(?<!\d){re.escape(expected_int)}(?!\d)", text):
                 amount = expected
+        if amount is None:
+            money = re.findall(r"(?<!\d)(\d+\.\d{2})(?!\d)", text)
+            if money:
+                try:
+                    amount = float(money[0])
+                except ValueError:
+                    amount = None
 
     result["amount"] = amount
     amount_ok = amount is not None and abs(amount - expected) < 0.009
-    account_ok = account_matches(digits, payment or {})
+    amount_wrong = amount is not None and not amount_ok
+    account_ok = account_matches(digits, payment or {}, text)
 
-    if amount_ok and account_ok:
-        result["ok"] = True
-        result["autoConfirm"] = True
-        result["reason"] = "คิวอาร์สลิปตรงยอดและบัญชีปลายทาง"
-        return result
-
-    if amount_ok:
-        result["ok"] = True
-        result["autoConfirm"] = True
-        result["reason"] = "คิวอาร์สลิปตรงยอดโอน"
-        return result
-
-    if account_ok:
-        result["ok"] = True
-        result["autoConfirm"] = True
-        result["reason"] = "คิวอาร์สลิปตรงบัญชีปลายทาง"
-        return result
-
-    if amount is not None and not amount_ok:
+    if amount_wrong:
         result["reason"] = f"ยอดบนสลิปไม่ตรงกับยอดจอง ({expected:.2f} บาท) กรุณาแนบสลิปใหม่"
         return result
 
-    result["reason"] = "สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่ที่มียอดหรือบัญชีปลายทางและคิวอาร์ชัดเจน"
+    # พบคิวอาร์บนสลิปแล้ว — รับเข้าระบบเป็นรอตรวจ ไม่ยืนยันอัตโนมัติ
+    result["ok"] = True
+    result["autoConfirm"] = False
+    if amount_ok and account_ok:
+        result["reason"] = "พบสลิป · คิวอาร์ตรงยอดและบัญชี รอผู้จัดงานยืนยัน"
+    elif amount_ok:
+        result["reason"] = "พบสลิป · คิวอาร์ตรงยอด รอผู้จัดงานยืนยัน"
+    elif account_ok:
+        result["reason"] = "พบสลิป · คิวอาร์ตรงบัญชี รอผู้จัดงานยืนยัน"
+    else:
+        result["reason"] = "พบสลิปแล้ว รอผู้จัดงานตรวจสอบ"
     return result
 
 
@@ -227,20 +236,18 @@ def apply_slip_check(row, body, cat):
     payment = cat.get("payment") or {}
     check = verify_slip_qr(body.get("slipQr"), row.get("total"), payment)
     row["slipCheck"] = check
-    if check.get("autoConfirm") and row.get("status") != "cancelled":
-        row["status"] = "confirmed"
     return check
 
 
 def require_valid_slip(body, total, cat):
-    """ตรวจสลิปก่อนบันทึก — คืน (check, error_message)"""
+    """ตรวจสลิปก่อนบันทึก — ต้องเป็นรูปสลิปที่มีคิวอาร์ คืน (check, error_message)"""
     if not body.get("slipData"):
         return None, "กรุณาแนบรูปสลิปก่อนยืนยัน"
     if not valid_slip(body.get("slipData"), required=True):
         return None, "ไฟล์สลิปต้องเป็นรูปภาพขนาดไม่เกิน 1.5 MB"
     check = verify_slip_qr(body.get("slipQr"), total, cat.get("payment") or {})
-    if not check.get("autoConfirm"):
-        return check, check.get("reason") or "สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่"
+    if not check.get("ok"):
+        return check, check.get("reason") or "รูปที่แนบไม่ใช่สลิป กรุณาแนบสลิปใหม่"
     return check, None
 
 
@@ -275,12 +282,18 @@ def sheets_row_shirt(row):
         "name": row.get("name", ""),
         "phone": row.get("phone", ""),
         "address": row.get("address", ""),
+        "pickup": row.get("pickup", ""),
+        "trackingNumber": row.get("trackingNumber", ""),
         "detail": detail,
         "total": row.get("total", 0),
         "hasSlip": bool(row.get("slipData")),
         "slipStatus": (
-            "ผ่านอัตโนมัติ" if (row.get("slipCheck") or {}).get("autoConfirm")
-            else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if row.get("slipData") else "ไม่มีสลิป"))
+            "รอตรวจสอบ"
+            if row.get("status") == "pending"
+            else (
+                "ผ่านอัตโนมัติ" if (row.get("slipCheck") or {}).get("autoConfirm")
+                else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if row.get("slipData") else "ไม่มีสลิป"))
+            )
         ),
         "createdAt": row.get("createdAt", ""),
         "updatedAt": bangkok_now(),
@@ -301,8 +314,12 @@ def sheets_row_table(row):
         "total": row.get("total", 0),
         "hasSlip": bool(row.get("slipData")),
         "slipStatus": (
-            "ผ่านอัตโนมัติ" if (row.get("slipCheck") or {}).get("autoConfirm")
-            else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if row.get("slipData") else "ไม่มีสลิป"))
+            "รอตรวจสอบ"
+            if row.get("status") == "pending"
+            else (
+                "ผ่านอัตโนมัติ" if (row.get("slipCheck") or {}).get("autoConfirm")
+                else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if row.get("slipData") else "ไม่มีสลิป"))
+            )
         ),
         "createdAt": row.get("createdAt", ""),
         "updatedAt": bangkok_now(),
@@ -455,6 +472,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/admin/status":
                 self.admin_status(body)
                 return
+            if path == "/api/admin/tracking":
+                self.admin_tracking(body)
+                return
             if path == "/api/admin/sheets-sync":
                 self.admin_sheets_sync()
                 return
@@ -487,10 +507,17 @@ class Handler(BaseHTTPRequestHandler):
         if not valid_slip(body.get("slipData"), required=True):
             self.send_json(400, {"error": "ไฟล์สลิปต้องเป็นรูปภาพขนาดไม่เกิน 1.5 MB"})
             return
-        address = clean(body.get("address"), 300)
-        if len(address) < 8:
-            self.send_json(400, {"error": "กรุณากรอกที่อยู่"})
+        pickup = clean(body.get("pickup"), 20)
+        if pickup not in ("รับเอง", "จัดส่ง"):
+            self.send_json(400, {"error": "กรุณาเลือกวิธีรับเสื้อ รับเอง หรือจัดส่ง"})
             return
+        if pickup == "จัดส่ง":
+            address = clean(body.get("address"), 300)
+            if len(address) < 8:
+                self.send_json(400, {"error": "กรุณากรอกที่อยู่จัดส่ง"})
+                return
+        else:
+            address = ""
         merged = {}
         for item in items:
             if not isinstance(item, dict):
@@ -526,14 +553,15 @@ class Handler(BaseHTTPRequestHandler):
                 "generation": generation,
                 "phone": phone,
                 "lineId": clean(body.get("lineId"), 40),
-                "pickup": "จัดส่ง",
+                "pickup": pickup,
                 "address": address,
+                "trackingNumber": "",
                 "items": normalized,
                 "total": total,
                 "note": clean(body.get("note"), 500),
                 "slipName": clean(body.get("slipName"), 120),
                 "slipData": body.get("slipData") or "",
-                "status": "confirmed",
+                "status": "pending",
                 "slipCheck": check,
             }
             db["shirts"].append(order)
@@ -605,7 +633,7 @@ class Handler(BaseHTTPRequestHandler):
                 "total": total,
                 "slipName": clean(body.get("slipName"), 120),
                 "slipData": body.get("slipData") or "",
-                "status": "confirmed",
+                "status": "pending",
                 "slipCheck": check,
             }
             db["tables"].append(booking)
@@ -646,7 +674,8 @@ class Handler(BaseHTTPRequestHandler):
             target["slipData"] = body["slipData"]
             target["slipName"] = clean(body.get("slipName"), 120)
             target["slipCheck"] = check
-            target["status"] = "confirmed"
+            if target.get("status") != "cancelled":
+                target["status"] = "pending"
             kind = "shirt" if str(target.get("code", "")).startswith("SH") else "table"
             save_db(db)
         notify_sheets(kind, target)
@@ -679,6 +708,25 @@ class Handler(BaseHTTPRequestHandler):
             save_db(db)
         notify_sheets(kind, target)
         self.send_json(200, {"ok": True})
+
+    def admin_tracking(self, body):
+        if not self.require_admin():
+            self.send_json(401, {"error": "รหัสผู้ดูแลไม่ถูกต้อง"})
+            return
+        tracking = clean(body.get("trackingNumber"), 80)
+        with LOCK:
+            db = load_db()
+            target = next((row for row in db["shirts"] if row["id"] == body.get("id")), None)
+            if target is None:
+                self.send_json(404, {"error": "ไม่พบรายการเสื้อ"})
+                return
+            if (target.get("pickup") or "จัดส่ง") != "จัดส่ง":
+                self.send_json(400, {"error": "รายการรับเองไม่ต้องใส่หมายเลขพัสดุ"})
+                return
+            target["trackingNumber"] = tracking
+            save_db(db)
+        notify_sheets("shirt", target)
+        self.send_json(200, {"ok": True, "trackingNumber": tracking})
 
     def admin_sheets_sync(self):
         if not self.require_admin():

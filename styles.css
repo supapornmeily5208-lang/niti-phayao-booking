@@ -28,6 +28,9 @@ body {
   font-family: var(--sans);
   font-size: 17px;
   line-height: 1.65;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -198,6 +201,19 @@ main { padding: 42px 0 20px; }
   border: 1px solid var(--line);
 }
 .qr-frame svg { width: 100%; height: auto; display: block; }
+.qr-frame-image { padding: 0; overflow: hidden; }
+.qr-frame-image img { width: 100%; height: auto; display: block; vertical-align: middle; }
+.pay-method {
+  margin: 14px 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.pay-method:first-of-type { border-top: 0; padding-top: 0; }
+.pay-method-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+  color: var(--ink);
+}
 .account { font-size: 28px; font-weight: 700; letter-spacing: 0.04em; }
 .pay-card dl, .success dl { margin: 12px 0; }
 .pay-card dl div, .success dl div, .fact-row { margin: 6px 0; }
@@ -235,10 +251,157 @@ dd { margin: 0; }
 .slip-btn { position: relative; margin-top: 8px; }
 .slip-btn input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .receipt { background: white; border: 1px solid var(--line); border-radius: 18px; padding: 28px 22px; }
+.receipt-page { max-width: 720px; }
 .receipt-head { text-align: center; border-bottom: 1px dashed #d9d0c0; margin-bottom: 16px; padding-bottom: 8px; }
 .receipt .code { margin: 8px 0; font-size: 32px; letter-spacing: 0.14em; font-weight: 700; }
-.receipt-items { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; }
+.receipt-section { margin: 0 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.receipt-section:last-of-type { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.receipt-section h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--moss);
+}
+.receipt-facts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 0;
+}
+.receipt-facts div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin: 0;
+}
+.receipt-facts dt { color: var(--muted); font-size: 14px; }
+.receipt-facts dd { margin: 0; word-break: break-word; }
+.receipt-items { border-top: 0; margin-top: 0; padding-top: 0; }
+.receipt-total { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 18px; }
+.receipt-note .fine { margin: 0; }
+.receipt-actions { margin-top: 18px; }
+.receipt-actions .row-actions { margin-top: 10px; }
+.booking-results { display: grid; gap: 12px; margin-top: 18px; }
+.booking-group h3 { margin: 0 0 12px; font-size: 20px; }
+.booking-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 0;
+  margin: 0;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.booking-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+.booking-summary::-webkit-details-marker { display: none; }
+.booking-summary-main { min-width: 0; }
+.booking-code { margin: 0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: 0.08em; }
+.booking-summary-name,
+.booking-summary-phone {
+  margin: 0;
+  color: var(--ink);
+  word-break: break-word;
+}
+.booking-summary-phone { color: var(--muted); font-size: 15px; }
+.booking-summary-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.booking-more {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--moss);
+}
+.booking-more::before { content: "ดูรายละเอียด"; }
+.booking-card[open] .booking-more { color: var(--muted); }
+.booking-card[open] .booking-more::before { content: "ซ่อนรายละเอียด"; }
+.booking-detail {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.booking-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.booking-pay { margin-top: 12px; }
+.booking-pay summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--moss);
+  padding: 8px 0;
+}
 body.modal-open { overflow: hidden; }
+.pickup-field { border: 0; padding: 0; margin: 0 0 14px; }
+.pickup-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+.pickup-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.3;
+  text-align: center;
+}
+.pickup-option > span {
+  position: relative;
+  z-index: 1;
+  color: inherit;
+}
+.pickup-option:has(input:checked) {
+  border-color: var(--moss);
+  background: #e8f2ed;
+  color: var(--pine);
+  box-shadow: inset 0 0 0 1px var(--moss);
+}
+.pickup-option input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+.tracking-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+}
+.tracking-box input {
+  flex: 1 1 140px;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: white;
+}
 .field { display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px; }
 .field span { font-weight: 600; }
 .field small { color: var(--muted); }
@@ -272,7 +435,55 @@ body.modal-open { overflow: hidden; }
 .alert.ok { background: #e5f3ec; color: var(--ok); }
 .guide { margin: 8px 0 16px; color: var(--muted); }
 .guide summary { cursor: pointer; }
+.admin-search { max-width: 420px; margin: 0 0 16px; }
 .slip-preview { width: 120px; border-radius: 12px; border: 1px solid var(--line); }
+.slip-thumb {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  text-align: left;
+}
+.slip-thumb .slip-preview {
+  width: 120px;
+  transition: transform 0.15s ease;
+}
+.slip-thumb:hover .slip-preview,
+.slip-thumb:focus-visible .slip-preview {
+  outline: 2px solid var(--moss);
+  outline-offset: 2px;
+}
+.slip-zoom-back {
+  z-index: 50;
+  padding: 16px;
+  align-items: center;
+  place-items: center;
+}
+.slip-zoom-modal {
+  position: relative;
+  width: min(920px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: var(--card);
+  border-radius: 18px;
+  padding: 16px;
+}
+.slip-zoom-modal img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+}
+.slip-zoom-close {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 12px;
+}
 .success .code { font-size: 32px; letter-spacing: 0.14em; font-weight: 700; }
 .pill { display: inline-flex; border-radius: 999px; padding: 2px 10px; font-size: 13px; background: #eee; }
 .pill.pending { background: #f8efd8; color: var(--warn); }
@@ -332,13 +543,154 @@ footer a { color: var(--moss); }
   .summary { position: static; }
   .nav { align-items: flex-start; flex-direction: column; }
   h1 { font-size: 48px; }
+  .qr-frame { max-width: 280px; margin: 0 auto; }
+  .pay-card { justify-items: center; text-align: left; }
+  .account { font-size: 22px; word-break: break-all; }
 }
+
+@media (max-width: 720px) {
+  body { font-size: 16px; }
+  .wrap { width: min(1120px, calc(100% - 24px)); }
+  .nav {
+    padding: 12px 14px;
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+  .brand-logo { height: 40px; max-width: 44px; }
+  .brand strong { font-size: 14px; }
+  .nav-links {
+    width: 100%;
+    gap: 6px;
+  }
+  .nav-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 14px;
+  }
+  .hero { padding: 28px 0 12px; }
+  .hero-logo { width: min(120px, 38%); margin-bottom: 14px; }
+  h1 { font-size: clamp(34px, 10vw, 44px); line-height: 1.15; }
+  .page-head h2 { font-size: clamp(28px, 8vw, 40px); }
+  .choice .price, .total { font-size: 30px; }
+  .panel, .pay-card, .booking-card, .receipt { padding: 16px; border-radius: 16px; }
+  .btn, .choice a {
+    min-height: 48px;
+    width: 100%;
+  }
+  .row-actions .btn,
+  .hero-actions .btn,
+  .booking-card-actions .btn,
+  .receipt-actions .btn,
+  .filters .btn {
+    width: auto;
+    flex: 1 1 calc(50% - 8px);
+  }
+  .wizard {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .wizard li { font-size: 14px; padding: 12px; }
+  .size-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 8px 12px;
+  }
+  .size-row .stepper {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+  .size-row .stepper button,
+  .size-row input[type="number"] {
+    min-height: 48px;
+    min-width: 48px;
+  }
+  .size-row input[type="number"] { flex: 1; width: auto; }
+  .pickup-options { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pickup-option {
+    min-height: 46px;
+    padding: 10px 12px;
+    font-size: 16px;
+  }
+  .modal-back {
+    padding: 0;
+    align-items: stretch;
+    place-items: stretch;
+  }
+  .modal {
+    width: 100%;
+    max-width: none;
+    min-height: 100%;
+    max-height: none;
+    border-radius: 0;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  }
+  .receipt .code, .booking-code { font-size: 26px; letter-spacing: 0.08em; }
+  .receipt-facts div { grid-template-columns: 96px minmax(0, 1fr); }
+  .slip-preview { width: 100%; max-width: 220px; }
+  .filters { gap: 8px; }
+  .filters .btn { flex: 1 1 calc(50% - 8px); justify-content: center; }
+  .admin-stats { gap: 12px; }
+  .stat .total { font-size: 34px; }
+  .table-wrap table,
+  .table-wrap thead,
+  .table-wrap tbody,
+  .table-wrap th,
+  .table-wrap td,
+  .table-wrap tr { display: block; width: 100%; }
+  .table-wrap thead { display: none; }
+  .table-wrap tr {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px;
+    margin: 0 0 12px;
+  }
+  .table-wrap td {
+    border: 0;
+    padding: 6px 0;
+  }
+  .table-wrap td::before {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .table-wrap td:nth-child(1)::before { content: "รหัส"; }
+  .table-wrap td:nth-child(2)::before { content: "ผู้จอง"; }
+  .table-wrap td:nth-child(3)::before { content: "รายการ"; }
+  .table-wrap td:nth-child(4)::before { content: "สลิป"; }
+  .table-wrap td:nth-child(5)::before { content: "จัดการ"; }
+  .admin-actions .btn { flex: 1 1 calc(50% - 6px); }
+  .tracking-box { flex-direction: column; align-items: stretch; }
+  .tracking-box .btn { width: 100%; }
+  #toast {
+    bottom: max(18px, env(safe-area-inset-bottom));
+    width: min(92vw, 360px);
+    text-align: center;
+  }
+  footer { padding-bottom: max(40px, env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 420px) {
+  .row-actions .btn,
+  .hero-actions .btn,
+  .booking-card-actions .btn,
+  .receipt-actions .btn,
+  .filters .btn {
+    flex: 1 1 100%;
+  }
+  .receipt-facts div { grid-template-columns: 1fr; gap: 2px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rain { display: none; }
   html { scroll-behavior: auto; }
 }
 @media print {
-  .nav, .hero-actions, .row-actions, footer, .no-print { display: none !important; }
+  .nav, .hero-actions, .row-actions, .receipt-actions, footer, .no-print { display: none !important; }
   body, .hero-band { background: white; color: black; }
-  .pay-card, .success { box-shadow: none; }
+  .pay-card, .success, .receipt { box-shadow: none; }
 }

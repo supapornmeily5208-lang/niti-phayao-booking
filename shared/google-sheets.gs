@@ -13,7 +13,7 @@
 
 var SHEET_SHIRTS = 'จองเสื้อ'
 var SHEET_TABLES = 'จองโต๊ะ'
-var HEADERS_SHIRT = ['เวลาอัปเดต', 'รหัส', 'สถานะ', 'ชื่อ', 'เบอร์โทร', 'ที่อยู่', 'รายการ', 'ยอด', 'มีสลิป', 'วันเวลาจอง']
+var HEADERS_SHIRT = ['เวลาอัปเดต', 'รหัส', 'สถานะ', 'ชื่อ', 'เบอร์โทร', 'วิธีรับ', 'ที่อยู่', 'หมายเลขพัสดุ', 'รายการ', 'ยอด', 'มีสลิป', 'วันเวลาจอง']
 var HEADERS_TABLE = ['เวลาอัปเดต', 'รหัส', 'สถานะ', 'ชื่อ', 'รุ่น', 'เบอร์โทร', 'ที่อยู่', 'จำนวนโต๊ะ', 'จำนวนท่าน', 'ยอด', 'มีสลิป', 'วันเวลาจอง']
 
 function doGet() {
@@ -44,8 +44,34 @@ function upsert_(ss, row) {
   var isShirt = row.kind === 'shirt'
   var sheet = ss.getSheetByName(isShirt ? SHEET_SHIRTS : SHEET_TABLES)
   var values = isShirt
-    ? [row.updatedAt || '', row.code || '', row.status || '', row.name || '', row.phone || '', row.address || '', row.detail || '', row.total || '', row.slipStatus || (row.hasSlip ? 'ใช่' : 'ไม่'), row.createdAt || '']
-    : [row.updatedAt || '', row.code || '', row.status || '', row.name || '', row.generation || '', row.phone || '', row.address || '', row.tableCount || '', row.seats || '', row.total || '', row.slipStatus || (row.hasSlip ? 'ใช่' : 'ไม่'), row.createdAt || '']
+    ? [
+      row.updatedAt || '',
+      row.code || '',
+      row.status || '',
+      row.name || '',
+      row.phone || '',
+      row.pickup || '',
+      row.address || '',
+      row.trackingNumber || '',
+      row.detail || '',
+      row.total || '',
+      row.slipStatus || (row.hasSlip ? 'ใช่' : 'ไม่'),
+      row.createdAt || '',
+    ]
+    : [
+      row.updatedAt || '',
+      row.code || '',
+      row.status || '',
+      row.name || '',
+      row.generation || '',
+      row.phone || '',
+      row.address || '',
+      row.tableCount || '',
+      row.seats || '',
+      row.total || '',
+      row.slipStatus || (row.hasSlip ? 'ใช่' : 'ไม่'),
+      row.createdAt || '',
+    ]
 
   var last = sheet.getLastRow()
   if (last < 2) {
@@ -63,16 +89,20 @@ function upsert_(ss, row) {
   }
   if (found > 0) sheet.getRange(found, 1, 1, values.length).setValues([values])
   else sheet.appendRow(values)
-}function ensureSheet_(ss, name, headers) {
+}
+
+function ensureSheet_(ss, name, headers) {
   var sheet = ss.getSheetByName(name)
   if (!sheet) sheet = ss.insertSheet(name)
-  var first = sheet.getRange(1, 1, 1, headers.length).getValues()[0]
+  var width = Math.max(headers.length, sheet.getLastColumn() || headers.length)
+  var first = sheet.getRange(1, 1, 1, width).getValues()[0]
   var blank = first.every(function (cell) { return cell === '' })
-  if (blank || first[1] !== headers[1]) {
-    sheet.clear()
+  var same = headers.every(function (h, i) { return String(first[i] || '') === String(h) })
+  if (blank || !same) {
+    // อัปเดตหัวตารางเท่านั้น ไม่ลบแถวข้อมูลเดิม
     sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-    sheet.setFrozenRows(1)
   }
+  sheet.setFrozenRows(1)
 }
 
 function json_(obj) {
