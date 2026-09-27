@@ -404,7 +404,7 @@ function shirtPayModal() {
           ${state.shirt.slipData ? 'เปลี่ยนสลิป' : 'แนบสลิป'}
           <input type="file" accept="image/png,image/jpeg,image/webp" data-file="shirt">
         </label>
-        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}${state.shirt.slipQr ? ' · พบคิวอาร์บนสลิป' : ''}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิป ก่อนกดยืนยันการโอน</p>'}
+        ${state.shirt.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.shirt.slipName)}${state.shirt.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ยังไม่พบคิวอาร์'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.shirt.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิปให้เห็นคิวอาร์ชัดเจน ระบบจะตรวจอัตโนมัติเมื่อกดยืนยัน</p>'}
         <div class="row-actions">
           <button class="btn btn-dark" type="button" data-action="confirm-transfer"${ready ? '' : ' disabled'}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการโอน'}</button>
           <button class="btn btn-line" type="button" data-action="close-pay">กลับไปแก้รายการ</button>
@@ -539,7 +539,7 @@ function tablePayModal() {
           ${state.table.slipData ? 'เปลี่ยนรูปสลิป' : 'แนบรูปสลิป'}
           <input type="file" accept="image/png,image/jpeg,image/webp" data-file="table">
         </label>
-        ${state.table.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.table.slipName)}${state.table.slipQr ? ' · พบคิวอาร์บนสลิป' : ''}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.table.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิป ก่อนกดยืนยันการชำระเงิน</p>'}
+        ${state.table.slipData ? `<p class="fine">แนบแล้ว: ${esc(state.table.slipName)}${state.table.slipQr ? ' · พบคิวอาร์บนสลิป' : ' · ยังไม่พบคิวอาร์'}</p><img class="slip-preview" alt="ตัวอย่างสลิป" src="${esc(state.table.slipData)}">` : '<p class="fine">โอนเสร็จแล้วแนบรูปสลิปให้เห็นคิวอาร์ชัดเจน ระบบจะตรวจอัตโนมัติเมื่อกดยืนยัน</p>'}
         <div class="row-actions">
           <button class="btn btn-dark" type="button" data-action="confirm-table"${ready ? '' : ' disabled'}>${state.busy ? 'กำลังบันทึก' : 'ยืนยันการชำระเงิน'}</button>
           <button class="btn btn-line" type="button" data-action="close-table-pay">กลับไปแก้รายการ</button>
@@ -729,23 +729,55 @@ function bindValue(el) {
 
 function decodeQrFromCanvas(canvas) {
   if (typeof window.jsQR !== 'function') return ''
-  const scales = [1, 0.85, 0.7, 1.25, 0.55]
-  for (const scale of scales) {
-    let target = canvas
-    if (scale !== 1) {
-      target = document.createElement('canvas')
-      target.width = Math.max(1, Math.round(canvas.width * scale))
-      target.height = Math.max(1, Math.round(canvas.height * scale))
-      target.getContext('2d').drawImage(canvas, 0, 0, target.width, target.height)
+  const regions = [
+    [0, 0, 1, 1],
+    [0, 0.45, 1, 0.55],
+    [0.45, 0.45, 0.55, 0.55],
+    [0, 0, 1, 0.55],
+    [0.2, 0.2, 0.6, 0.6],
+  ]
+  const scales = [1, 0.85, 0.7, 1.2, 0.5]
+  for (const [rx, ry, rw, rh] of regions) {
+    const sx = Math.floor(canvas.width * rx)
+    const sy = Math.floor(canvas.height * ry)
+    const sw = Math.max(1, Math.floor(canvas.width * rw))
+    const sh = Math.max(1, Math.floor(canvas.height * rh))
+    const crop = document.createElement('canvas')
+    crop.width = sw
+    crop.height = sh
+    crop.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh)
+    for (const scale of scales) {
+      let target = crop
+      if (scale !== 1) {
+        target = document.createElement('canvas')
+        target.width = Math.max(1, Math.round(crop.width * scale))
+        target.height = Math.max(1, Math.round(crop.height * scale))
+        target.getContext('2d').drawImage(crop, 0, 0, target.width, target.height)
+      }
+      const ctx = target.getContext('2d')
+      const imageData = ctx.getImageData(0, 0, target.width, target.height)
+      const code = window.jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: 'attemptBoth',
+      })
+      if (code && code.data) return String(code.data).trim()
     }
-    const ctx = target.getContext('2d')
-    const imageData = ctx.getImageData(0, 0, target.width, target.height)
-    const code = window.jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'attemptBoth',
-    })
-    if (code && code.data) return String(code.data).trim()
   }
   return ''
+}
+
+function clearSlip(group) {
+  state[group].slipData = ''
+  state[group].slipName = ''
+  state[group].slipQr = ''
+}
+
+function rejectSlip(group, message) {
+  clearSlip(group)
+  if (group === 'shirt' || group === 'table') state[group].payOpen = true
+  state.error = message || 'สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่'
+  state.busy = false
+  render(true)
+  document.querySelector('.alert')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 function readSlip(file, apply) {
@@ -810,6 +842,9 @@ async function placeShirtOrder() {
     render(true)
     return
   }
+  if (!form.slipQr) {
+    return rejectSlip('shirt', 'ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน')
+  }
   state.busy = true
   state.error = ''
   render(true)
@@ -829,17 +864,16 @@ async function placeShirtOrder() {
     const order = data.order
     state.shirt = blankShirt()
     state.shirt.success = order
-    if (order.slipCheck && order.slipCheck.autoConfirm) toast('ตรวจสลิปผ่านแล้ว')
-    else if (form.slipData) toast('แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ')
+    toast('ตรวจสลิปผ่านแล้ว')
     state.catalog = await api('/api/public')
   } catch (error) {
-    state.error = error.message
-    state.shirt.payOpen = true
+    rejectSlip('shirt', error.message || 'สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่')
+    return
   } finally {
     state.busy = false
-    render()
-    window.scrollTo(0, 0)
   }
+  render()
+  window.scrollTo(0, 0)
 }
 
 function goShirtInfo(event) {
@@ -893,6 +927,9 @@ async function placeTableOrder() {
     render(true)
     return
   }
+  if (!form.slipQr) {
+    return rejectSlip('table', 'ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน')
+  }
   state.busy = true
   state.error = ''
   render(true)
@@ -913,17 +950,16 @@ async function placeTableOrder() {
     const booking = data.booking
     state.table = blankTable()
     state.table.success = booking
-    if (booking.slipCheck && booking.slipCheck.autoConfirm) toast('ตรวจสลิปผ่านแล้ว')
-    else toast('แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ')
+    toast('ตรวจสลิปผ่านแล้ว')
     state.catalog = await api('/api/public')
   } catch (error) {
-    state.error = error.message
-    state.table.payOpen = true
+    rejectSlip('table', error.message || 'สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่')
+    return
   } finally {
     state.busy = false
-    render()
-    window.scrollTo(0, 0)
   }
+  render()
+  window.scrollTo(0, 0)
 }
 
 async function submitLookup(event) {
@@ -1457,12 +1493,18 @@ function onChange(event) {
       state[el.dataset.file].slipData = slipData
       state[el.dataset.file].slipName = slipName
       state[el.dataset.file].slipQr = slipQr || ''
-      state.error = ''
+      state.error = slipQr
+        ? ''
+        : 'ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน'
       render(true)
     })
   }
   if (el.dataset.slipCode) {
     readSlip(el.files[0], async (slipData, slipName, slipQr) => {
+      if (!slipQr) {
+        fail('ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน')
+        return
+      }
       try {
         const result = await api('/api/slip', {
           method: 'POST',
@@ -1474,14 +1516,13 @@ function onChange(event) {
             slipQr: slipQr || '',
           }),
         })
-        if (result.slipCheck && result.slipCheck.autoConfirm) toast('ตรวจสลิปผ่านแล้ว')
-        else toast('แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ')
+        toast('ตรวจสลิปผ่านแล้ว')
         const data = await api('/api/lookup', { method: 'POST', body: JSON.stringify({ phone: phoneDigits(state.lookup.phone) }) })
         state.lookup.shirts = data.shirts
         state.lookup.tables = data.tables
         render(true)
       } catch (error) {
-        fail(error.message)
+        fail(error.message || 'สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่')
       }
     })
   }

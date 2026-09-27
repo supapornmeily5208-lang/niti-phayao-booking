@@ -118,12 +118,37 @@ def parse_tlv(data):
     return result
 
 
-def verify_slip_qr(qr_text, expected_amount, payment):
-    """ตรวจคิวอาร์บนสลิปเทียบยอดและเลขบัญชีจาก event.json"""
-    text = str(qr_text or "").strip()
+def find_amounts(text):
+    found = []
+    for match in re.finditer(r"(?<!\d)(\d{1,7}(?:\.\d{2})?)(?!\d)", str(text or "")):
+        try:
+            found.append(float(match.group(1)))
+        except ValueError:
+            continue
+    return found
+
+
+def account_matches(digits, payment):
     account = re.sub(r"\D", "", str(payment.get("accountNumber") or ""))
     bank_code = re.sub(r"\D", "", str(payment.get("bankCode") or ""))
     prompt_pay = re.sub(r"\D", "", str(payment.get("promptPay") or ""))
+    if account:
+        if account in digits or (len(account) >= 6 and account[-6:] in digits) or (len(account) >= 4 and account[-4:] in digits):
+            return True
+        if bank_code and (bank_code + account) in digits:
+            return True
+    if prompt_pay and prompt_pay in digits:
+        return True
+    if prompt_pay and len(prompt_pay) >= 9:
+        mobile = "0066" + prompt_pay.lstrip("0")
+        if mobile in digits:
+            return True
+    return False
+
+
+def verify_slip_qr(qr_text, expected_amount, payment):
+    """ตรวจคิวอาร์บนสลิปเทียบยอดและเลขบัญชี — ผ่านเฉพาะเมื่อข้อมูลตรง"""
+    text = str(qr_text or "").strip()
     result = {
         "ok": False,
         "autoConfirm": False,
@@ -133,8 +158,7 @@ def verify_slip_qr(qr_text, expected_amount, payment):
         "checkedAt": datetime.now(timezone.utc).isoformat(),
     }
     if not text:
-        result["ok"] = True
-        result["reason"] = "แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ"
+        result["reason"] = "ไม่พบคิวอาร์บนสลิป กรุณาแนบสลิปใหม่ให้เห็นคิวอาร์ชัดเจน"
         return result
 
     digits = re.sub(r"\D", "", text)
@@ -151,36 +175,27 @@ def verify_slip_qr(qr_text, expected_amount, payment):
             except ValueError:
                 amount = None
         result["method"] = "emv-qr"
+        if crc_ok is False:
+            result["reason"] = "คิวอาร์บนสลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่"
+            return result
     else:
         result["method"] = "qr-text"
-        money = re.search(r"(?<!\d)(\d+\.\d{2})(?!\d)", text)
-        if money:
-            try:
-                amount = float(money.group(1))
-            except ValueError:
-                amount = None
+
+    expected = float(expected_amount or 0)
+    if amount is None:
+        for value in find_amounts(text):
+            if abs(value - expected) < 0.009:
+                amount = value
+                break
+        if amount is None and expected > 0:
+            expected_int = str(int(round(expected)))
+            expected_money = f"{expected:.2f}"
+            if expected_money in text or re.search(rf"(?<!\d){re.escape(expected_int)}(?!\d)", text):
+                amount = expected
 
     result["amount"] = amount
-    expected = float(expected_amount or 0)
     amount_ok = amount is not None and abs(amount - expected) < 0.009
-
-    account_ok = False
-    if account:
-        if account in digits or account[-6:] in digits or account[-4:] in digits:
-            account_ok = True
-        if bank_code and (bank_code + account) in digits:
-            account_ok = True
-    if prompt_pay and prompt_pay in digits:
-        account_ok = True
-    if prompt_pay and len(prompt_pay) >= 9:
-        mobile = "0066" + prompt_pay.lstrip("0")
-        if mobile in digits:
-            account_ok = True
-
-    if crc_ok is False:
-        result["ok"] = True
-        result["reason"] = "แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ"
-        return result
+    account_ok = account_matches(digits, payment or {})
 
     if amount_ok and account_ok:
         result["ok"] = True
@@ -190,12 +205,21 @@ def verify_slip_qr(qr_text, expected_amount, payment):
 
     if amount_ok:
         result["ok"] = True
-        result["autoConfirm"] = False
-        result["reason"] = "ยอดในคิวอาร์ตรง รอผู้จัดงานยืนยันบัญชี"
+        result["autoConfirm"] = True
+        result["reason"] = "คิวอาร์สลิปตรงยอดโอน"
         return result
 
-    result["ok"] = True
-    result["reason"] = "แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ"
+    if account_ok:
+        result["ok"] = True
+        result["autoConfirm"] = True
+        result["reason"] = "คิวอาร์สลิปตรงบัญชีปลายทาง"
+        return result
+
+    if amount is not None and not amount_ok:
+        result["reason"] = f"ยอดบนสลิปไม่ตรงกับยอดจอง ({expected:.2f} บาท) กรุณาแนบสลิปใหม่"
+        return result
+
+    result["reason"] = "สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่ที่มียอดหรือบัญชีปลายทางและคิวอาร์ชัดเจน"
     return result
 
 
@@ -206,6 +230,18 @@ def apply_slip_check(row, body, cat):
     if check.get("autoConfirm") and row.get("status") != "cancelled":
         row["status"] = "confirmed"
     return check
+
+
+def require_valid_slip(body, total, cat):
+    """ตรวจสลิปก่อนบันทึก — คืน (check, error_message)"""
+    if not body.get("slipData"):
+        return None, "กรุณาแนบรูปสลิปก่อนยืนยัน"
+    if not valid_slip(body.get("slipData"), required=True):
+        return None, "ไฟล์สลิปต้องเป็นรูปภาพขนาดไม่เกิน 1.5 MB"
+    check = verify_slip_qr(body.get("slipQr"), total, cat.get("payment") or {})
+    if not check.get("autoConfirm"):
+        return check, check.get("reason") or "สลิปไม่ถูกต้อง กรุณาแนบสลิปใหม่"
+    return check, None
 
 
 def is_open(day):
@@ -473,6 +509,11 @@ class Handler(BaseHTTPRequestHandler):
             {"size": size, "qty": qty, "price": cat["shirt"]["price"], "name": cat["shirt"]["name"]}
             for size, qty in merged.items()
         ]
+        total = sum(item["price"] * item["qty"] for item in normalized)
+        check, slip_error = require_valid_slip(body, total, cat)
+        if slip_error:
+            self.send_json(400, {"error": slip_error, "slipCheck": check})
+            return
         with LOCK:
             db = load_db()
             used = {row["code"] for row in db["shirts"] + db["tables"]}
@@ -488,14 +529,13 @@ class Handler(BaseHTTPRequestHandler):
                 "pickup": "จัดส่ง",
                 "address": address,
                 "items": normalized,
-                "total": sum(item["price"] * item["qty"] for item in normalized),
+                "total": total,
                 "note": clean(body.get("note"), 500),
-                "slipName": clean(body.get("slipName"), 120) if body.get("slipData") else "",
+                "slipName": clean(body.get("slipName"), 120),
                 "slipData": body.get("slipData") or "",
-                "status": "pending",
+                "status": "confirmed",
+                "slipCheck": check,
             }
-            if order["slipData"]:
-                apply_slip_check(order, body, cat)
             db["shirts"].append(order)
             save_db(db)
         notify_sheets("shirt", order)
@@ -534,6 +574,11 @@ class Handler(BaseHTTPRequestHandler):
         if not valid_slip(body.get("slipData"), required=True):
             self.send_json(400, {"error": "ไฟล์สลิปต้องเป็นรูปภาพขนาดไม่เกิน 1.5 MB"})
             return
+        total = count * cat["table"]["price"]
+        check, slip_error = require_valid_slip(body, total, cat)
+        if slip_error:
+            self.send_json(400, {"error": slip_error, "slipCheck": check})
+            return
         with LOCK:
             db = load_db()
             cap = cat["table"].get("maxTables")
@@ -557,12 +602,12 @@ class Handler(BaseHTTPRequestHandler):
                 "seats": count * cat["table"]["seats"],
                 "guests": clean(body.get("guests"), 800),
                 "note": clean(body.get("note"), 500),
-                "total": count * cat["table"]["price"],
-                "slipName": clean(body.get("slipName"), 120) if body.get("slipData") else "",
+                "total": total,
+                "slipName": clean(body.get("slipName"), 120),
                 "slipData": body.get("slipData") or "",
-                "status": "pending",
+                "status": "confirmed",
+                "slipCheck": check,
             }
-            apply_slip_check(booking, body, cat)
             db["tables"].append(booking)
             save_db(db)
         notify_sheets("table", booking)
@@ -593,10 +638,16 @@ class Handler(BaseHTTPRequestHandler):
             if target["status"] == "cancelled":
                 self.send_json(400, {"error": "รายการนี้ถูกยกเลิกแล้ว"})
                 return
+            cat = load_catalog()
+            check, slip_error = require_valid_slip(body, target.get("total"), cat)
+            if slip_error:
+                self.send_json(400, {"error": slip_error, "slipCheck": check})
+                return
             target["slipData"] = body["slipData"]
             target["slipName"] = clean(body.get("slipName"), 120)
+            target["slipCheck"] = check
+            target["status"] = "confirmed"
             kind = "shirt" if str(target.get("code", "")).startswith("SH") else "table"
-            apply_slip_check(target, body, load_catalog())
             save_db(db)
         notify_sheets(kind, target)
         self.send_json(200, {"ok": True, "slipCheck": target.get("slipCheck"), "status": target.get("status")})
