@@ -220,6 +220,15 @@ main { padding: 42px 0 20px; }
 dt { color: var(--muted); font-size: 14px; }
 dd { margin: 0; }
 .fine { color: var(--muted); font-size: 14px; }
+.note {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f4efe4;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
 
 .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 0; margin: 18px 0 0; list-style: none; }
 .steps li { padding: 16px; border-top: 2px solid var(--gold); background: rgba(255, 253, 248, 0.7); border-radius: 0 0 16px 16px; }

@@ -27,6 +27,7 @@
   "shirt": {
     "name": "เสื้อที่ระลึก",
     "price": 350,
+    "shippingFee": 70,
     "deadline": "2026-09-30",
     "deadlineLabel": "30 กันยายน 2569",
     "sizes": ["XS", "S", "M", "L", "XL", "2L", "3L", "5L", "7L"],

@@ -137,8 +137,17 @@ function shirtLines() {
   return Object.entries(state.shirt.items).filter(([, qty]) => qty > 0)
 }
 
-function shirtTotal() {
+function shirtShippingFee() {
+  const fee = Number(state.catalog?.shirt?.shippingFee) || 0
+  return state.shirt.pickup === 'จัดส่ง' && fee > 0 ? fee : 0
+}
+
+function shirtSubtotal() {
   return shirtLines().reduce((sum, [, qty]) => sum + qty * state.catalog.shirt.price, 0)
+}
+
+function shirtTotal() {
+  return shirtSubtotal() + shirtShippingFee()
 }
 
 function tableTotal() {
@@ -380,6 +389,7 @@ function shirtsPage() {
 function shirtInfoStep() {
   const form = state.shirt
   const delivery = form.pickup === 'จัดส่ง'
+  const fee = Number(state.catalog.shirt.shippingFee) || 0
   return `
     <form class="panel" data-form="shirt-info">
       ${field('ชื่อ-นามสกุล', `<input id="shirt-name" data-bind="shirt.name" value="${esc(form.name)}" autocomplete="name" required>`)}
@@ -396,8 +406,9 @@ function shirtInfoStep() {
             <span>จัดส่ง</span>
           </label>
         </div>
-        <small>เลือกรับเองไม่ต้องกรอกที่อยู่ · เลือกจัดส่งต้องกรอกที่อยู่จัดส่ง</small>
+        <small>เลือกรับเองไม่ต้องกรอกที่อยู่ · เลือกจัดส่งต้องกรอกที่อยู่ และมีค่าจัดส่ง ${baht(fee)}</small>
       </fieldset>
+      ${delivery ? `<p class="note">หมายเหตุ: การจัดส่งมีค่าจัดส่ง ${baht(fee)} ต่อออเดอร์ จะบวกในยอดชำระอัตโนมัติ</p>` : ''}
       ${delivery ? field('ที่อยู่จัดส่ง', `<textarea id="shirt-address" data-bind="shirt.address" required>${esc(form.address)}</textarea>`, 'ระบุที่อยู่ให้ครบสำหรับจัดส่งพัสดุ') : ''}
       <button class="btn btn-dark" type="submit"${state.catalog.shirtOpen ? '' : ' disabled'}>ถัดไป เลือกไซส์</button>
     </form>`
@@ -408,9 +419,12 @@ function shirtSizeStep() {
   const form = state.shirt
   const lines = shirtLines()
   const pieces = lines.reduce((sum, [, qty]) => sum + qty, 0)
+  const shipping = shirtShippingFee()
+  const subtotal = shirtSubtotal()
   return `
     <form class="panel" data-form="shirt-sizes">
       <p class="fine">${esc(form.name)} · ${esc(phoneDigits(form.phone))} · ${esc(form.pickup || '-')}${form.pickup === 'จัดส่ง' && form.address ? `<br>${esc(form.address)}` : ''}</p>
+      ${shipping ? `<p class="note">หมายเหตุ: ค่าจัดส่ง ${baht(shipping)} รวมในยอดชำระแล้ว</p>` : ''}
       <p><button class="btn btn-line" type="button" data-action="shirt-back">แก้ไขข้อมูลผู้จอง</button></p>
       <div class="size-list">
         ${shirt.sizes.map((size) => {
@@ -426,7 +440,9 @@ function shirtSizeStep() {
           </div>`
         }).join('')}
       </div>
-      <div class="line"><span>รวม ${pieces} ตัว</span><strong>${baht(shirtTotal())}</strong></div>
+      <div class="line"><span>เสื้อ ${pieces} ตัว</span><span>${baht(subtotal)}</span></div>
+      ${shipping ? `<div class="line"><span>ค่าจัดส่ง</span><span>${baht(shipping)}</span></div>` : ''}
+      <div class="line"><span>ยอดชำระ</span><strong>${baht(shirtTotal())}</strong></div>
       <button class="btn btn-dark" type="submit"${state.catalog.shirtOpen ? '' : ' disabled'}>ยืนยันรายการ</button>
     </form>`
 }
@@ -434,6 +450,7 @@ function shirtSizeStep() {
 function shirtPayModal() {
   const total = shirtTotal()
   const lines = shirtLines()
+  const shipping = shirtShippingFee()
   const ready = Boolean(state.shirt.slipData && state.shirt.slipQr) && !state.busy
   return `
     <div class="modal-back">
@@ -442,6 +459,8 @@ function shirtPayModal() {
         <h2 id="pay-title">สแกนคิวอาร์เพื่อโอนเงิน</h2>
         ${state.error ? `<p class="alert">${esc(state.error)}</p>` : ''}
         ${lines.map(([size, qty]) => `<div class="line"><span>ขนาด ${esc(size)} × ${qty}</span><span>${baht(qty * state.catalog.shirt.price)}</span></div>`).join('')}
+        ${shipping ? `<div class="line"><span>ค่าจัดส่ง</span><span>${baht(shipping)}</span></div>` : ''}
+        ${shipping ? `<p class="note">หมายเหตุ: รวมค่าจัดส่ง ${baht(shipping)} แล้ว</p>` : ''}
         ${paymentCard(total, '')}
         <label class="btn btn-line slip-btn">
           ${state.shirt.slipData ? 'เปลี่ยนสลิป' : 'แนบสลิป'}
@@ -470,11 +489,19 @@ function receiptModel(kind, order) {
   if (kind === 'shirt') {
     const pieces = order.items.reduce((sum, item) => sum + item.qty, 0)
     const pickup = order.pickup || 'จัดส่ง'
+    const shippingFee = Number(order.shippingFee) || 0
     const shipping = [['วิธีรับ', pickup]]
     if (pickup === 'จัดส่ง') {
       shipping.push(['ที่อยู่', order.address || '-'])
       if (order.trackingNumber) shipping.push(['หมายเลขพัสดุ', order.trackingNumber])
     }
+    const itemTotal = order.items.reduce((sum, item) => sum + item.price * item.qty, 0)
+    const lines = [
+      ...order.items.map((item) => [`ขนาด ${item.size} × ${item.qty}`, baht(item.price * item.qty)]),
+    ]
+    if (shippingFee > 0) lines.push(['ค่าจัดส่ง', baht(shippingFee)])
+    else if (pickup === 'จัดส่ง' && order.total > itemTotal) lines.push(['ค่าจัดส่ง', baht(order.total - itemTotal)])
+    lines.push([`รวม ${pieces} ตัว`, baht(order.total)])
     return {
       kind,
       kindLabel: 'เสื้อที่ระลึก',
@@ -489,10 +516,7 @@ function receiptModel(kind, order) {
         ['วันที่จอง', when(order.createdAt)],
       ],
       shipping,
-      lines: [
-        ...order.items.map((item) => [`ขนาด ${item.size} × ${item.qty}`, baht(item.price * item.qty)]),
-        [`รวม ${pieces} ตัว`, baht(order.total)],
-      ],
+      lines,
       note: slipNote,
     }
   }
@@ -677,7 +701,10 @@ function orderCard(kind, order) {
   const needPay = canSlip && !order.hasSlip
   const pickup = order.pickup || ''
   const detail = kind === 'shirt'
-    ? order.items.map((item) => `ขนาด ${item.size} × ${item.qty}`).join(' · ')
+    ? [
+        order.items.map((item) => `ขนาด ${item.size} × ${item.qty}`).join(' · '),
+        Number(order.shippingFee) > 0 ? `ค่าจัดส่ง ${baht(order.shippingFee)}` : '',
+      ].filter(Boolean).join(' · ')
     : `${order.tableCount} โต๊ะ · ${order.seats} ท่าน`
   const who = kind === 'shirt' ? order.name : order.hostName
   return `

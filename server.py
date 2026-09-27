@@ -541,6 +541,10 @@ class Handler(BaseHTTPRequestHandler):
             for size, qty in merged.items()
         ]
         total = sum(item["price"] * item["qty"] for item in normalized)
+        shipping_fee = int(cat["shirt"].get("shippingFee") or 0) if pickup == "จัดส่ง" else 0
+        if shipping_fee < 0:
+            shipping_fee = 0
+        total += shipping_fee
         check, slip_error = require_valid_slip(body, total, cat)
         if slip_error:
             self.send_json(400, {"error": slip_error, "slipCheck": check})
@@ -561,6 +565,7 @@ class Handler(BaseHTTPRequestHandler):
                 "address": address,
                 "trackingNumber": "",
                 "items": normalized,
+                "shippingFee": shipping_fee,
                 "total": total,
                 "note": clean(body.get("note"), 500),
                 "slipName": clean(body.get("slipName"), 120),
