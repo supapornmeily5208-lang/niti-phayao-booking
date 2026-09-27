@@ -132,7 +132,7 @@ def verify_slip_qr(qr_text, expected_amount, payment):
         "amount": None,
         "checkedAt": datetime.now(timezone.utc).isoformat(),
     }
-    if (!text):
+    if not text:
         result["ok"] = True
         result["reason"] = "แนบสลิปแล้ว รอผู้จัดงานตรวจสอบ"
         return result
