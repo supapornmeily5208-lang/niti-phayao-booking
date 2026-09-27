@@ -367,10 +367,6 @@ function shirtsPage() {
           <figcaption>ตารางไซส์ รอบอกและยาว หน่วยเป็นนิ้ว</figcaption>
         </figure>
       </div>
-      <ol class="wizard">
-        <li class="${step === 1 ? 'on' : 'done'}">1. ข้อมูลผู้จอง</li>
-        <li class="${step === 2 ? 'on' : ''}">2. เลือกไซส์และจำนวน</li>
-      </ol>
       ${step === 1 ? shirtInfoStep() : shirtSizeStep()}
       ${state.shirt.payOpen ? shirtPayModal() : ''}
     </div></main>`
@@ -892,6 +888,7 @@ function downloadQr(payload, name) {
 
 function bindValue(el) {
   if (!el.dataset.bind) return
+  if (el.type === 'radio' && !el.checked) return
   const [group, key] = el.dataset.bind.split('.')
   state[group][key] = el.type === 'checkbox' ? el.checked : el.value
 }
