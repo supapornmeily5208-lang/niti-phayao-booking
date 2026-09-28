@@ -29,10 +29,17 @@ DATA = DATA_DIR / "db.json"
 CATALOG = ROOT / "shared" / "event.json"
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "phayao2569")
 SHEETS_WEBHOOK_URL = os.environ.get("SHEETS_WEBHOOK_URL", "").strip()
+SHEETS_SPREADSHEET_ID = os.environ.get(
+    "SHEETS_SPREADSHEET_ID",
+    "1fpkUYP5fnJ3sdlPcPVNApKNqL49HQ4RV3JB_ol4MNbE",
+).strip()
 TOKEN = hmac.new(b"niti-phayao-reunion", ADMIN_PASSWORD.encode(), hashlib.sha256).hexdigest()
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 LOCK = __import__("threading").Lock()
 STATUS_TH = {"pending": "รอตรวจสอบ", "confirmed": "ยืนยันแล้ว", "cancelled": "ยกเลิก"}
+STATUS_FROM_TH = {value: key for key, value in STATUS_TH.items()}
+STATUS_FROM_TH.update({"รอตรวจ": "pending", "ยืนยัน": "confirmed", "ยกเลิกแล้ว": "cancelled"})
+SHIRT_SIZE_KEYS = ["7L", "5L", "3L", "2L", "XL", "XS", "L", "M", "S"]
 
 FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -75,6 +82,8 @@ def phone_of(value):
     digits = re.sub(r"\D", "", str(value or ""))
     if digits.startswith("66") and len(digits) >= 11:
         digits = "0" + digits[2:]
+    if len(digits) == 9 and not digits.startswith("0"):
+        digits = "0" + digits
     return digits
 
 
@@ -365,6 +374,302 @@ def notify_sheets(kind, row):
     threading.Thread(target=run, daemon=True).start()
 
 
+def fetch_url_text(url, timeout=25):
+    req = urllib.request.Request(url, headers={"User-Agent": "niti-phayao-booking/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8-sig", errors="replace")
+
+
+def fetch_sheet_csv(sheet_name):
+    if not SHEETS_SPREADSHEET_ID:
+        return ""
+    import urllib.parse
+
+    url = (
+        "https://docs.google.com/spreadsheets/d/%s/gviz/tq?tqx=out:csv&sheet=%s"
+        % (SHEETS_SPREADSHEET_ID, urllib.parse.quote(sheet_name))
+    )
+    return fetch_url_text(url)
+
+
+def csv_rows(text):
+    import csv
+    import io
+
+    if not text or not str(text).strip():
+        return []
+    return list(csv.DictReader(io.StringIO(text)))
+
+
+def parse_status(value):
+    raw = clean(value, 40)
+    if raw in STATUS_TH:
+        return raw
+    return STATUS_FROM_TH.get(raw, "pending")
+
+
+def parse_money(value):
+    digits = re.sub(r"[^\d.]", "", str(value or ""))
+    if not digits:
+        return 0
+    try:
+        return int(round(float(digits)))
+    except ValueError:
+        return 0
+
+
+def parse_shirt_detail(detail, unit_price, product_name):
+    text = str(detail or "")
+    merged = {}
+    for size in SHIRT_SIZE_KEYS:
+        pattern = re.compile(r"(?<![A-Za-z0-9])%s\s*[x×X]\s*(\d+)" % re.escape(size))
+        for match in pattern.finditer(text):
+            merged[size] = merged.get(size, 0) + int(match.group(1))
+        text = pattern.sub(" ", text)
+    return [
+        {"size": size, "qty": qty, "price": unit_price, "name": product_name}
+        for size, qty in merged.items()
+        if qty > 0
+    ]
+
+
+def sheet_cell(row, *names):
+    for name in names:
+        if name in row and str(row.get(name) or "").strip() != "":
+            return row.get(name)
+    # tolerate BOM / whitespace in headers
+    lowered = {str(key).strip().lstrip("\ufeff"): value for key, value in row.items()}
+    for name in names:
+        if name in lowered and str(lowered.get(name) or "").strip() != "":
+            return lowered.get(name)
+    return ""
+
+
+def shirt_from_sheet(row, cat):
+    code = clean(sheet_cell(row, "รหัส", "code"), 20).upper()
+    if not code.startswith("SH"):
+        return None
+    name = clean(sheet_cell(row, "ชื่อ", "name"), 80)
+    phone = phone_of(sheet_cell(row, "เบอร์โทร", "phone"))
+    address = clean(sheet_cell(row, "ที่อยู่", "address"), 300)
+    pickup = clean(sheet_cell(row, "วิธีรับ", "pickup"), 20)
+    if pickup not in ("รับเอง", "จัดส่ง"):
+        pickup = "จัดส่ง" if len(address) >= 8 else "รับเอง"
+    if pickup == "รับเอง":
+        address = address if len(address) >= 8 else ""
+    detail = sheet_cell(row, "รายการ", "detail")
+    unit = int(cat["shirt"]["price"])
+    items = parse_shirt_detail(detail, unit, cat["shirt"]["name"])
+    if not items:
+        items = [{"size": "M", "qty": 1, "price": unit, "name": cat["shirt"]["name"]}]
+    item_total = sum(item["price"] * item["qty"] for item in items)
+    total = parse_money(sheet_cell(row, "ยอด", "total")) or item_total
+    shipping_fee = max(0, total - item_total) if pickup == "จัดส่ง" else 0
+    created = clean(sheet_cell(row, "วันเวลาจอง", "createdAt"), 60) or datetime.now(timezone.utc).isoformat()
+    slip_mark = clean(sheet_cell(row, "มีสลิป", "slipStatus", "hasSlip"), 40)
+    has_slip_mark = slip_mark not in ("", "ไม่", "ไม่มี", "false", "False", "0")
+    return {
+        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, "shirt:%s" % code)),
+        "code": code,
+        "createdAt": created,
+        "name": name or code,
+        "nickname": "",
+        "generation": "",
+        "phone": phone if valid_phone(phone) else phone_of("0" + phone) if phone else "",
+        "lineId": "",
+        "pickup": pickup,
+        "address": address,
+        "trackingNumber": clean(sheet_cell(row, "หมายเลขพัสดุ", "trackingNumber"), 80),
+        "items": items,
+        "shippingFee": shipping_fee,
+        "total": total,
+        "note": "นำเข้าจาก Google Sheets" + (" · ชีทระบุว่ามีสลิป (ไฟล์สลิปไม่ถูกเก็บในชีท)" if has_slip_mark else ""),
+        "slipName": "",
+        "slipData": "",
+        "status": parse_status(sheet_cell(row, "สถานะ", "status")),
+        "slipCheck": {"ok": has_slip_mark, "autoConfirm": False, "reason": "นำเข้าจาก Sheets"},
+    }
+
+
+def table_from_sheet(row, cat):
+    code = clean(sheet_cell(row, "รหัส", "code"), 20).upper()
+    if not code.startswith("TB"):
+        return None
+    seats_per = int(cat["table"]["seats"])
+    count = positive_int(sheet_cell(row, "จำนวนโต๊ะ", "tableCount"), 50) or 1
+    seats = positive_int(sheet_cell(row, "จำนวนท่าน", "seats"), 500) or count * seats_per
+    total = parse_money(sheet_cell(row, "ยอด", "total")) or count * int(cat["table"]["price"])
+    phone = phone_of(sheet_cell(row, "เบอร์โทร", "phone"))
+    created = clean(sheet_cell(row, "วันเวลาจอง", "createdAt"), 60) or datetime.now(timezone.utc).isoformat()
+    slip_mark = clean(sheet_cell(row, "มีสลิป", "slipStatus", "hasSlip"), 40)
+    has_slip_mark = slip_mark not in ("", "ไม่", "ไม่มี", "false", "False", "0")
+    return {
+        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, "table:%s" % code)),
+        "code": code,
+        "createdAt": created,
+        "hostName": clean(sheet_cell(row, "ชื่อ", "name", "hostName"), 80) or code,
+        "generation": clean(sheet_cell(row, "รุ่น", "generation"), 40),
+        "phone": phone if valid_phone(phone) else phone,
+        "address": clean(sheet_cell(row, "ที่อยู่", "address"), 300),
+        "tableCount": count,
+        "seats": seats,
+        "total": total,
+        "note": "นำเข้าจาก Google Sheets",
+        "slipName": "",
+        "slipData": "",
+        "status": parse_status(sheet_cell(row, "สถานะ", "status")),
+        "slipCheck": {"ok": has_slip_mark, "autoConfirm": False, "reason": "นำเข้าจาก Sheets"},
+    }
+
+
+def merge_booking(existing, incoming):
+    """Fill gaps from Sheets without wiping slip images or newer local edits."""
+    if not existing:
+        return incoming, "added"
+    changed = False
+    for key in (
+        "name", "hostName", "phone", "address", "pickup", "trackingNumber",
+        "generation", "items", "tableCount", "seats", "total", "shippingFee", "status", "createdAt",
+    ):
+        if key not in incoming:
+            continue
+        new_val = incoming.get(key)
+        old_val = existing.get(key)
+        if new_val in ("", None, [], 0) and old_val not in ("", None, [], 0):
+            continue
+        if key == "status" and old_val == "confirmed" and new_val == "pending":
+            continue
+        if new_val != old_val and new_val not in ("", None, []):
+            existing[key] = new_val
+            changed = True
+    if not existing.get("slipData") and incoming.get("note"):
+        if existing.get("note") != incoming.get("note"):
+            existing["note"] = incoming.get("note")
+            changed = True
+    return existing, ("updated" if changed else "kept")
+
+
+def load_rows_from_sheets_csv():
+    cat = load_catalog()
+    shirts = []
+    tables = []
+    try:
+        for row in csv_rows(fetch_sheet_csv("จองเสื้อ")):
+            parsed = shirt_from_sheet(row, cat)
+            if parsed:
+                shirts.append(parsed)
+    except Exception as err:
+        print("Sheets shirt CSV failed: %s" % err, flush=True)
+    try:
+        for row in csv_rows(fetch_sheet_csv("จองโต๊ะ")):
+            parsed = table_from_sheet(row, cat)
+            if parsed:
+                tables.append(parsed)
+    except Exception as err:
+        print("Sheets table CSV failed: %s" % err, flush=True)
+    return shirts, tables
+
+
+def load_rows_from_sheets_webhook():
+    if not SHEETS_WEBHOOK_URL:
+        return [], []
+    url = SHEETS_WEBHOOK_URL
+    sep = "&" if "?" in url else "?"
+    try:
+        raw = fetch_url_text(url + sep + "action=export")
+        data = json.loads(raw)
+        if not data.get("ok"):
+            return [], []
+        cat = load_catalog()
+        shirts = []
+        tables = []
+        for row in data.get("shirts") or []:
+            if isinstance(row, dict) and row.get("code"):
+                # webhook export uses same sheet field names as upsert payload inverted — accept either
+                parsed = shirt_from_sheet(row, cat) if "รหัส" in row or "รายการ" in row else None
+                if parsed is None and row.get("items"):
+                    shirts.append(row)
+                elif parsed:
+                    shirts.append(parsed)
+                else:
+                    mapped = {
+                        "รหัส": row.get("code"),
+                        "สถานะ": STATUS_TH.get(row.get("status"), row.get("status")),
+                        "ชื่อ": row.get("name"),
+                        "เบอร์โทร": row.get("phone"),
+                        "วิธีรับ": row.get("pickup"),
+                        "ที่อยู่": row.get("address"),
+                        "หมายเลขพัสดุ": row.get("trackingNumber"),
+                        "รายการ": row.get("detail"),
+                        "ยอด": row.get("total"),
+                        "มีสลิป": row.get("slipStatus") or row.get("hasSlip"),
+                        "วันเวลาจอง": row.get("createdAt"),
+                    }
+                    parsed = shirt_from_sheet(mapped, cat)
+                    if parsed:
+                        shirts.append(parsed)
+        for row in data.get("tables") or []:
+            if isinstance(row, dict) and row.get("code"):
+                mapped = {
+                    "รหัส": row.get("code"),
+                    "สถานะ": STATUS_TH.get(row.get("status"), row.get("status")),
+                    "ชื่อ": row.get("name") or row.get("hostName"),
+                    "รุ่น": row.get("generation"),
+                    "เบอร์โทร": row.get("phone"),
+                    "ที่อยู่": row.get("address"),
+                    "จำนวนโต๊ะ": row.get("tableCount"),
+                    "จำนวนท่าน": row.get("seats"),
+                    "ยอด": row.get("total"),
+                    "มีสลิป": row.get("slipStatus") or row.get("hasSlip"),
+                    "วันเวลาจอง": row.get("createdAt"),
+                }
+                parsed = table_from_sheet(mapped, cat)
+                if parsed:
+                    tables.append(parsed)
+        return shirts, tables
+    except Exception as err:
+        print("Sheets webhook export failed: %s" % err, flush=True)
+        return [], []
+
+
+def hydrate_from_sheets():
+    """Merge Google Sheets bookings into local db so Render redeploys can recover."""
+    shirts, tables = load_rows_from_sheets_webhook()
+    if not shirts and not tables:
+        shirts, tables = load_rows_from_sheets_csv()
+    if not shirts and not tables:
+        return {"ok": False, "added": 0, "updated": 0, "kept": 0, "error": "ไม่พบข้อมูลใน Google Sheets"}
+    added = updated = kept = 0
+    with LOCK:
+        db = load_db()
+        by_shirt = {row.get("code"): row for row in db.get("shirts") or []}
+        by_table = {row.get("code"): row for row in db.get("tables") or []}
+        for row in shirts:
+            code = row.get("code")
+            merged, action = merge_booking(by_shirt.get(code), row)
+            if action == "added":
+                db.setdefault("shirts", []).append(merged)
+                by_shirt[code] = merged
+                added += 1
+            elif action == "updated":
+                updated += 1
+            else:
+                kept += 1
+        for row in tables:
+            code = row.get("code")
+            merged, action = merge_booking(by_table.get(code), row)
+            if action == "added":
+                db.setdefault("tables", []).append(merged)
+                by_table[code] = merged
+                added += 1
+            elif action == "updated":
+                updated += 1
+            else:
+                kept += 1
+        save_db(db)
+    return {"ok": True, "added": added, "updated": updated, "kept": kept, "shirts": len(shirts), "tables": len(tables)}
+
+
 def public_view(db, cat):
     shirts = [row for row in db["shirts"] if row["status"] != "cancelled"]
     tables = [row for row in db["tables"] if row["status"] != "cancelled"]
@@ -481,6 +786,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/admin/sheets-sync":
                 self.admin_sheets_sync()
+                return
+            if path == "/api/admin/sheets-restore":
+                self.admin_sheets_restore()
                 return
             self.send_json(404, {"error": "ไม่พบรายการ"})
         except Exception:
@@ -754,6 +1062,16 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_json(200, {"ok": True, "count": len(rows)})
 
+    def admin_sheets_restore(self):
+        if not self.require_admin():
+            self.send_json(401, {"error": "รหัสผู้ดูแลไม่ถูกต้อง"})
+            return
+        result = hydrate_from_sheets()
+        if not result.get("ok"):
+            self.send_json(502, {"error": result.get("error") or "ดึงจาก Google Sheets ไม่สำเร็จ"})
+            return
+        self.send_json(200, result)
+
 
 if __name__ == "__main__":
     host = os.environ.get("HOST", "0.0.0.0")
@@ -762,9 +1080,29 @@ if __name__ == "__main__":
     if not os.environ.get("ADMIN_PASSWORD"):
         print("คำเตือน: ใช้รหัสผู้จัดงานค่าเริ่มต้น ตั้ง ADMIN_PASSWORD ก่อนขึ้นเว็บจริง", flush=True)
     if SHEETS_WEBHOOK_URL:
-        print("เชื่อม Google Sheets แล้ว", flush=True)
+        print("เชื่อม Google Sheets webhook แล้ว", flush=True)
     else:
-        print("ยังไม่เชื่อม Google Sheets (ตั้ง SHEETS_WEBHOOK_URL เมื่อพร้อม)", flush=True)
+        print("ยังไม่เชื่อม SHEETS_WEBHOOK_URL (ยังดึง CSV จากชีทได้ถ้ามี SHEETS_SPREADSHEET_ID)", flush=True)
+    if SHEETS_SPREADSHEET_ID:
+        print("Sheets spreadsheet: %s" % SHEETS_SPREADSHEET_ID, flush=True)
+        try:
+            result = hydrate_from_sheets()
+            if result.get("ok"):
+                print(
+                    "กู้จาก Sheets: เพิ่ม %s · อัปเดต %s · คงเดิม %s (ชีทเสื้อ %s / โต๊ะ %s)"
+                    % (
+                        result.get("added", 0),
+                        result.get("updated", 0),
+                        result.get("kept", 0),
+                        result.get("shirts", 0),
+                        result.get("tables", 0),
+                    ),
+                    flush=True,
+                )
+            else:
+                print("กู้จาก Sheets: %s" % result.get("error"), flush=True)
+        except Exception:
+            traceback.print_exc()
     server = ThreadingHTTPServer((host, port), Handler)
     print("เปิดเว็บได้ที่ http://127.0.0.1:%s" % port, flush=True)
     server.serve_forever()

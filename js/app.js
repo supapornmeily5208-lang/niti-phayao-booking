@@ -772,6 +772,7 @@ function adminPage() {
       <div class="filters">
         ${['all', 'pending', 'confirmed', 'cancelled'].map((item) => `<button class="btn btn-line" type="button" data-action="filter" data-filter="${item}" aria-pressed="${state.admin.filter === item}">${item === 'all' ? 'ทั้งหมด' : statusText(item)}</button>`).join('')}
         <button class="btn btn-line" type="button" data-action="sheets-sync">ซิงก์ไป Google Sheets</button>
+        <button class="btn btn-line" type="button" data-action="sheets-restore">ดึงจาก Google Sheets</button>
       </div>
       <label class="field admin-search">
         <span>ค้นหา</span>
@@ -1271,6 +1272,28 @@ async function syncGoogleSheets() {
   }
 }
 
+async function restoreGoogleSheets() {
+  if (!state.admin.token) return
+  state.busy = true
+  state.error = ''
+  render(true)
+  try {
+    const data = await api('/api/admin/sheets-restore', {
+      method: 'POST',
+      headers: { 'X-Admin-Token': state.admin.token },
+      body: '{}',
+    })
+    toast(`ดึงจาก Sheets แล้ว เพิ่ม ${data.added || 0} · อัปเดต ${data.updated || 0}`)
+    await loadAdmin()
+  } catch (error) {
+    state.error = error.message
+    toast(error.message)
+  } finally {
+    state.busy = false
+    render(true)
+  }
+}
+
 function onClick(event) {
   const el = event.target.closest('[data-action]')
   if (!el) return
@@ -1365,6 +1388,11 @@ function onClick(event) {
   if (action === 'sheets-sync') {
     syncGoogleSheets()
     return
+  }
+  if (action === 'sheets-restore') {
+    restoreGoogleSheets()
+    return
+  }    return
   }
   if (action === 'refresh-admin') {
     loadAdmin()
