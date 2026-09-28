@@ -1392,7 +1392,6 @@ function onClick(event) {
   if (action === 'sheets-restore') {
     restoreGoogleSheets()
     return
-  }    return
   }
   if (action === 'refresh-admin') {
     loadAdmin()
