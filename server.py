@@ -288,7 +288,7 @@ def bangkok_now():
 
 def sheets_row_shirt(row):
     detail = ", ".join("%sx%s" % (item["size"], item["qty"]) for item in row.get("items") or [])
-    return {
+    payload = {
         "kind": "shirt",
         "code": row.get("code", ""),
         "status": STATUS_TH.get(row.get("status"), row.get("status", "")),
@@ -299,22 +299,24 @@ def sheets_row_shirt(row):
         "trackingNumber": row.get("trackingNumber", ""),
         "detail": detail,
         "total": row.get("total", 0),
-        "hasSlip": bool(row.get("slipData")),
+        "hasSlip": bool(row.get("slipData") or row.get("slipUrl")),
+        "slipUrl": row.get("slipUrl") or "",
         "slipStatus": (
             "รอตรวจสอบ"
             if row.get("status") == "pending"
             else (
                 "ผ่านอัตโนมัติ" if (row.get("slipCheck") or {}).get("autoConfirm")
-                else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if row.get("slipData") else "ไม่มีสลิป"))
+                else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if (row.get("slipData") or row.get("slipUrl")) else "ไม่มีสลิป"))
             )
         ),
         "createdAt": row.get("createdAt", ""),
         "updatedAt": bangkok_now(),
     }
+    return payload
 
 
 def sheets_row_table(row):
-    return {
+    payload = {
         "kind": "table",
         "code": row.get("code", ""),
         "status": STATUS_TH.get(row.get("status"), row.get("status", "")),
@@ -325,23 +327,25 @@ def sheets_row_table(row):
         "tableCount": row.get("tableCount", 0),
         "seats": row.get("seats", 0),
         "total": row.get("total", 0),
-        "hasSlip": bool(row.get("slipData")),
+        "hasSlip": bool(row.get("slipData") or row.get("slipUrl")),
+        "slipUrl": row.get("slipUrl") or "",
         "slipStatus": (
             "รอตรวจสอบ"
             if row.get("status") == "pending"
             else (
                 "ผ่านอัตโนมัติ" if (row.get("slipCheck") or {}).get("autoConfirm")
-                else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if row.get("slipData") else "ไม่มีสลิป"))
+                else ((row.get("slipCheck") or {}).get("reason") or ("มีสลิป" if (row.get("slipData") or row.get("slipUrl")) else "ไม่มีสลิป"))
             )
         ),
         "createdAt": row.get("createdAt", ""),
         "updatedAt": bangkok_now(),
     }
+    return payload
 
 
-def post_sheets(payload):
+def post_sheets(payload, timeout=60):
     if not SHEETS_WEBHOOK_URL:
-        return False, "ยังไม่ได้ตั้ง SHEETS_WEBHOOK_URL"
+        return False, "ยังไม่ได้ตั้ง SHEETS_WEBHOOK_URL", {}
     raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         SHEETS_WEBHOOK_URL,
@@ -350,15 +354,34 @@ def post_sheets(payload):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode("utf-8", errors="replace")
             if resp.status >= 400:
-                return False, body[:200] or ("HTTP %s" % resp.status)
-            return True, body[:200]
+                return False, body[:200] or ("HTTP %s" % resp.status), {}
+            try:
+                parsed = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                parsed = {}
+            return True, body[:200], parsed if isinstance(parsed, dict) else {}
     except urllib.error.HTTPError as err:
-        return False, (err.read().decode("utf-8", errors="replace") or str(err))[:200]
+        return False, (err.read().decode("utf-8", errors="replace") or str(err))[:200], {}
     except Exception as err:
-        return False, str(err)[:200]
+        return False, str(err)[:200], {}
+
+
+def apply_sheet_response(kind, code, parsed):
+    slip_url = clean((parsed or {}).get("slipUrl"), 500)
+    if not slip_url or not code:
+        return
+    with LOCK:
+        db = load_db()
+        rows = db["shirts"] if kind == "shirt" else db["tables"]
+        target = next((row for row in rows if row.get("code") == code), None)
+        if target is None:
+            return
+        if target.get("slipUrl") != slip_url:
+            target["slipUrl"] = slip_url
+            save_db(db)
 
 
 def notify_sheets(kind, row):
@@ -367,9 +390,14 @@ def notify_sheets(kind, row):
 
     def run():
         payload = sheets_row_shirt(row) if kind == "shirt" else sheets_row_table(row)
-        ok, detail = post_sheets(payload)
+        if row.get("slipData") and not row.get("slipUrl"):
+            payload["slipData"] = row.get("slipData")
+            payload["slipName"] = row.get("slipName") or ""
+        ok, detail, parsed = post_sheets(payload)
         if not ok:
             print("Google Sheets sync failed: %s" % detail, flush=True)
+            return
+        apply_sheet_response(kind, row.get("code"), parsed)
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -445,6 +473,75 @@ def sheet_cell(row, *names):
     return ""
 
 
+def fetch_url_bytes(url, timeout=40):
+    req = urllib.request.Request(url, headers={"User-Agent": "niti-phayao-booking/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read(), (resp.headers.get("Content-Type") or "").split(";")[0].strip()
+
+
+def drive_file_id(url):
+    text = str(url or "")
+    match = re.search(r"/d/([a-zA-Z0-9_-]{10,})", text)
+    if match:
+        return match.group(1)
+    match = re.search(r"[?&]id=([a-zA-Z0-9_-]{10,})", text)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def fetch_slip_as_data_url(url):
+    target = clean(url, 500)
+    if not target:
+        return ""
+    file_id = drive_file_id(target)
+    candidates = []
+    if file_id:
+        candidates.append("https://drive.google.com/uc?export=download&id=%s" % file_id)
+    candidates.append(target)
+    import base64
+
+    for candidate in candidates:
+        try:
+            raw, mime = fetch_url_bytes(candidate)
+            if not raw or len(raw) < 40:
+                continue
+            if raw[:1] in (b"<", b"{") and b"html" in raw[:200].lower():
+                continue
+            if not mime.startswith("image/"):
+                if raw[:3] == b"\xff\xd8\xff":
+                    mime = "image/jpeg"
+                elif raw[:8] == b"\x89PNG\r\n\x1a\n":
+                    mime = "image/png"
+                elif raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+                    mime = "image/webp"
+                else:
+                    continue
+            encoded = base64.b64encode(raw).decode("ascii")
+            return "data:%s;base64,%s" % (mime, encoded)
+        except Exception:
+            continue
+    return ""
+
+
+def attach_slip_from_url(order):
+    if order.get("slipData"):
+        return order
+    url = order.get("slipUrl") or ""
+    if not url:
+        return order
+    data_url = fetch_slip_as_data_url(url)
+    if data_url:
+        order["slipData"] = data_url
+        if not order.get("slipName"):
+            order["slipName"] = "%s-slip.jpg" % order.get("code", "slip")
+        order["note"] = clean(str(order.get("note") or "").replace("ไฟล์สลิปไม่ถูกเก็บในชีท", "ดึงสลิปจาก Drive แล้ว"), 500)
+        check = order.get("slipCheck") if isinstance(order.get("slipCheck"), dict) else {}
+        check.update({"ok": True, "reason": "ดึงสลิปจาก Google Drive"})
+        order["slipCheck"] = check
+    return order
+
+
 def shirt_from_sheet(row, cat):
     code = clean(sheet_cell(row, "รหัส", "code"), 20).upper()
     if not code.startswith("SH"):
@@ -466,9 +563,10 @@ def shirt_from_sheet(row, cat):
     total = parse_money(sheet_cell(row, "ยอด", "total")) or item_total
     shipping_fee = max(0, total - item_total) if pickup == "จัดส่ง" else 0
     created = clean(sheet_cell(row, "วันเวลาจอง", "createdAt"), 60) or datetime.now(timezone.utc).isoformat()
+    slip_url = clean(sheet_cell(row, "ลิงก์สลิป", "slipUrl"), 500)
     slip_mark = clean(sheet_cell(row, "มีสลิป", "slipStatus", "hasSlip"), 40)
-    has_slip_mark = slip_mark not in ("", "ไม่", "ไม่มี", "false", "False", "0")
-    return {
+    has_slip_mark = bool(slip_url) or slip_mark not in ("", "ไม่", "ไม่มี", "false", "False", "0")
+    order = {
         "id": str(uuid.uuid5(uuid.NAMESPACE_URL, "shirt:%s" % code)),
         "code": code,
         "createdAt": created,
@@ -483,12 +581,14 @@ def shirt_from_sheet(row, cat):
         "items": items,
         "shippingFee": shipping_fee,
         "total": total,
-        "note": "นำเข้าจาก Google Sheets" + (" · ชีทระบุว่ามีสลิป (ไฟล์สลิปไม่ถูกเก็บในชีท)" if has_slip_mark else ""),
+        "note": "นำเข้าจาก Google Sheets" + (" · มีลิงก์สลิป" if slip_url else (" · ชีทระบุว่ามีสลิป (ยังไม่มีลิงก์รูป)" if has_slip_mark else "")),
         "slipName": "",
         "slipData": "",
+        "slipUrl": slip_url,
         "status": parse_status(sheet_cell(row, "สถานะ", "status")),
         "slipCheck": {"ok": has_slip_mark, "autoConfirm": False, "reason": "นำเข้าจาก Sheets"},
     }
+    return attach_slip_from_url(order)
 
 
 def table_from_sheet(row, cat):
@@ -501,9 +601,10 @@ def table_from_sheet(row, cat):
     total = parse_money(sheet_cell(row, "ยอด", "total")) or count * int(cat["table"]["price"])
     phone = phone_of(sheet_cell(row, "เบอร์โทร", "phone"))
     created = clean(sheet_cell(row, "วันเวลาจอง", "createdAt"), 60) or datetime.now(timezone.utc).isoformat()
+    slip_url = clean(sheet_cell(row, "ลิงก์สลิป", "slipUrl"), 500)
     slip_mark = clean(sheet_cell(row, "มีสลิป", "slipStatus", "hasSlip"), 40)
-    has_slip_mark = slip_mark not in ("", "ไม่", "ไม่มี", "false", "False", "0")
-    return {
+    has_slip_mark = bool(slip_url) or slip_mark not in ("", "ไม่", "ไม่มี", "false", "False", "0")
+    order = {
         "id": str(uuid.uuid5(uuid.NAMESPACE_URL, "table:%s" % code)),
         "code": code,
         "createdAt": created,
@@ -514,12 +615,14 @@ def table_from_sheet(row, cat):
         "tableCount": count,
         "seats": seats,
         "total": total,
-        "note": "นำเข้าจาก Google Sheets",
+        "note": "นำเข้าจาก Google Sheets" + (" · มีลิงก์สลิป" if slip_url else ""),
         "slipName": "",
         "slipData": "",
+        "slipUrl": slip_url,
         "status": parse_status(sheet_cell(row, "สถานะ", "status")),
         "slipCheck": {"ok": has_slip_mark, "autoConfirm": False, "reason": "นำเข้าจาก Sheets"},
     }
+    return attach_slip_from_url(order)
 
 
 def merge_booking(existing, incoming):
@@ -529,7 +632,7 @@ def merge_booking(existing, incoming):
     changed = False
     for key in (
         "name", "hostName", "phone", "address", "pickup", "trackingNumber",
-        "generation", "items", "tableCount", "seats", "total", "shippingFee", "status", "createdAt",
+        "generation", "items", "tableCount", "seats", "total", "shippingFee", "status", "createdAt", "slipUrl",
     ):
         if key not in incoming:
             continue
@@ -541,6 +644,14 @@ def merge_booking(existing, incoming):
             continue
         if new_val != old_val and new_val not in ("", None, []):
             existing[key] = new_val
+            changed = True
+    if not existing.get("slipData") and incoming.get("slipData"):
+        existing["slipData"] = incoming["slipData"]
+        existing["slipName"] = incoming.get("slipName") or existing.get("slipName") or ""
+        changed = True
+    if not existing.get("slipData") and existing.get("slipUrl"):
+        attach_slip_from_url(existing)
+        if existing.get("slipData"):
             changed = True
     if not existing.get("slipData") and incoming.get("note"):
         if existing.get("note") != incoming.get("note"):
@@ -603,6 +714,7 @@ def load_rows_from_sheets_webhook():
                         "รายการ": row.get("detail"),
                         "ยอด": row.get("total"),
                         "มีสลิป": row.get("slipStatus") or row.get("hasSlip"),
+                        "ลิงก์สลิป": row.get("slipUrl") or row.get("ลิงก์สลิป"),
                         "วันเวลาจอง": row.get("createdAt"),
                     }
                     parsed = shirt_from_sheet(mapped, cat)
@@ -621,6 +733,7 @@ def load_rows_from_sheets_webhook():
                     "จำนวนท่าน": row.get("seats"),
                     "ยอด": row.get("total"),
                     "มีสลิป": row.get("slipStatus") or row.get("hasSlip"),
+                    "ลิงก์สลิป": row.get("slipUrl") or row.get("ลิงก์สลิป"),
                     "วันเวลาจอง": row.get("createdAt"),
                 }
                 parsed = table_from_sheet(mapped, cat)
@@ -1055,12 +1168,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {"error": "ยังไม่ได้ตั้งค่า SHEETS_WEBHOOK_URL บนเซิร์ฟเวอร์"})
             return
         db = load_db()
-        rows = [sheets_row_shirt(row) for row in db["shirts"]] + [sheets_row_table(row) for row in db["tables"]]
-        ok, detail = post_sheets({"action": "sync", "rows": rows})
-        if not ok:
-            self.send_json(502, {"error": "ส่งไป Google Sheets ไม่สำเร็จ", "detail": detail})
+        synced = 0
+        uploaded = 0
+        errors = []
+        for kind, rows in (("shirt", db.get("shirts") or []), ("table", db.get("tables") or [])):
+            for row in rows:
+                payload = sheets_row_shirt(row) if kind == "shirt" else sheets_row_table(row)
+                if row.get("slipData") and not row.get("slipUrl"):
+                    payload["slipData"] = row.get("slipData")
+                    payload["slipName"] = row.get("slipName") or ""
+                ok, detail, parsed = post_sheets(payload, timeout=90)
+                if not ok:
+                    errors.append("%s: %s" % (row.get("code"), detail))
+                    continue
+                synced += 1
+                slip_url = clean((parsed or {}).get("slipUrl"), 500)
+                if slip_url:
+                    uploaded += 1
+                    apply_sheet_response(kind, row.get("code"), parsed)
+        if errors and not synced:
+            self.send_json(502, {"error": "ส่งไป Google Sheets ไม่สำเร็จ", "detail": errors[0]})
             return
-        self.send_json(200, {"ok": True, "count": len(rows)})
+        self.send_json(200, {"ok": True, "count": synced, "slipUploaded": uploaded, "errors": errors[:5]})
 
     def admin_sheets_restore(self):
         if not self.require_admin():

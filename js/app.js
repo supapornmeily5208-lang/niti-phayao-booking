@@ -1262,7 +1262,7 @@ async function syncGoogleSheets() {
       headers: { 'X-Admin-Token': state.admin.token },
       body: '{}',
     })
-    toast(`ซิงก์ Google Sheets แล้ว ${data.count || 0} รายการ`)
+    toast(`ซิงก์ Google Sheets แล้ว ${data.count || 0} รายการ${data.slipUploaded ? ` · อัปสลิป ${data.slipUploaded}` : ''}`)
   } catch (error) {
     state.error = error.message
     toast(error.message)
