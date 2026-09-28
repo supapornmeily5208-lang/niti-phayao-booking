@@ -674,7 +674,15 @@ def merge_booking(existing, incoming):
         existing_total = int(existing.get("total") or 0)
     except (TypeError, ValueError):
         existing_total = 0
-    repair = existing_total > 100_000 or existing_total <= 0
+    incoming_total = 0
+    try:
+        incoming_total = int(incoming.get("total") or 0)
+    except (TypeError, ValueError):
+        incoming_total = 0
+    # Always trust freshly parsed sheet money/items when they look valid.
+    # This repairs rows corrupted by misaligned sheet headers.
+    sheet_money_keys = ("items", "total", "shippingFee", "pickup", "address", "trackingNumber", "name", "hostName", "phone")
+    trust_sheet = 0 < incoming_total <= 100_000
     for key in (
         "name", "hostName", "phone", "address", "pickup", "trackingNumber",
         "generation", "items", "tableCount", "seats", "total", "shippingFee", "status", "createdAt", "slipUrl",
@@ -683,7 +691,7 @@ def merge_booking(existing, incoming):
             continue
         new_val = incoming.get(key)
         old_val = existing.get(key)
-        if key in ("total", "items", "shippingFee", "pickup", "address") and repair and new_val not in ("", None, [], 0):
+        if trust_sheet and key in sheet_money_keys and new_val not in ("", None, []):
             if new_val != old_val:
                 existing[key] = new_val
                 changed = True
