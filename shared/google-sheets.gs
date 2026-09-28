@@ -187,10 +187,78 @@ function ensureSheet_(ss, name, headers) {
   var first = sheet.getRange(1, 1, 1, width).getValues()[0]
   var blank = first.every(function (cell) { return cell === '' })
   var same = headers.every(function (h, i) { return String(first[i] || '') === String(h) })
-  if (blank || !same) {
+  if (blank) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+  } else if (!same) {
+    migrateShirtHeaders_(sheet, first, headers)
   }
   sheet.setFrozenRows(1)
+}
+
+function migrateShirtHeaders_(sheet, oldHeaders, newHeaders) {
+  // รองรับเคสอัปหัวตารางแล้วข้อมูลเก่ายังไม่ขยับคอลัมน์
+  var oldMap = {}
+  for (var i = 0; i < oldHeaders.length; i++) {
+    var key = String(oldHeaders[i] || '').trim()
+    if (key) oldMap[key] = i
+  }
+  var last = sheet.getLastRow()
+  var width = Math.max(oldHeaders.length, newHeaders.length)
+  var values = last >= 2 ? sheet.getRange(2, 1, last - 1, width).getValues() : []
+  var next = []
+  for (var r = 0; r < values.length; r++) {
+    var src = values[r]
+    var get = function (label) {
+      return oldMap[label] >= 0 ? src[oldMap[label]] : ''
+    }
+    // ถ้าหัวใหม่แล้วแต่ข้อมูลเก่ายังเป็นรูปแบบเดิม (ที่อยู่หลุดไปอยู่คอลัมน์วิธีรับ)
+    var pickup = get('วิธีรับ')
+    var address = get('ที่อยู่')
+    var detail = get('รายการ')
+    var total = get('ยอด')
+    var tracking = get('หมายเลขพัสดุ')
+    var hasSlip = get('มีสลิป')
+    var slipUrl = get('ลิงก์สลิป')
+    var created = get('วันเวลาจอง')
+    var looksSize = function (text) {
+      return /(?:XS|XL|2L|3L|5L|7L|[SML])\s*[x×X]\s*\d+/i.test(String(text || ''))
+    }
+    if (looksSize(address) && !looksSize(detail)) {
+      created = total
+      hasSlip = detail
+      detail = address
+      total = tracking
+      address = pickup
+      pickup = address ? 'จัดส่ง' : 'รับเอง'
+      tracking = ''
+      slipUrl = ''
+    }
+    if (newHeaders[0] === 'เวลาอัปเดต' && newHeaders.indexOf('วิธีรับ') >= 0) {
+      next.push([
+        get('เวลาอัปเดต'),
+        get('รหัส'),
+        get('สถานะ'),
+        get('ชื่อ'),
+        get('เบอร์โทร'),
+        pickup || '',
+        address || '',
+        tracking || '',
+        detail || '',
+        total || '',
+        hasSlip || '',
+        slipUrl || '',
+        created || '',
+      ])
+    } else {
+      // fallback: เขียนหัวใหม่เฉย ๆ ไม่ย้ายข้อมูล
+      next.push(src.slice(0, newHeaders.length))
+    }
+  }
+  sheet.clear()
+  sheet.getRange(1, 1, 1, newHeaders.length).setValues([newHeaders])
+  if (next.length) {
+    sheet.getRange(2, 1, next.length, newHeaders.length).setValues(next)
+  }
 }
 
 function json_(obj) {

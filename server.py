@@ -437,13 +437,51 @@ def parse_status(value):
 
 
 def parse_money(value):
-    digits = re.sub(r"[^\d.]", "", str(value or ""))
+    text = str(value or "").strip()
+    if re.search(r"\d{4}-\d{2}-\d{2}T", text):
+        return 0
+    digits = re.sub(r"[^\d.]", "", text)
     if not digits:
         return 0
     try:
-        return int(round(float(digits)))
+        amount = int(round(float(digits)))
     except ValueError:
         return 0
+    if amount < 0 or amount > 500_000:
+        return 0
+    return amount
+
+
+def looks_like_size_detail(value):
+    return bool(parse_shirt_detail(value, 1, "x"))
+
+
+def normalize_shirt_sheet_row(row):
+    """Fix rows where Sheets headers were upgraded but old data columns were not shifted."""
+    data = {str(key).strip().lstrip("\ufeff"): value for key, value in row.items()}
+    if "วิธีรับ" not in data and "ลิงก์สลิป" not in data:
+        return data
+    detail = str(data.get("รายการ") or "")
+    total_raw = str(data.get("ยอด") or "")
+    address_slot = str(data.get("ที่อยู่") or "")
+    pickup_slot = str(data.get("วิธีรับ") or "")
+    misaligned = (
+        looks_like_size_detail(address_slot)
+        and not looks_like_size_detail(detail)
+    ) or bool(re.search(r"\d{4}-\d{2}-\d{2}T", total_raw)) or parse_money(total_raw) > 100_000
+    if not misaligned:
+        return data
+    return {
+        **data,
+        "วิธีรับ": "",
+        "ที่อยู่": pickup_slot,
+        "หมายเลขพัสดุ": "",
+        "รายการ": address_slot,
+        "ยอด": str(data.get("หมายเลขพัสดุ") or ""),
+        "มีสลิป": detail,
+        "ลิงก์สลิป": str(data.get("มีสลิป") or data.get("ลิงก์สลิป") or ""),
+        "วันเวลาจอง": total_raw or str(data.get("วันเวลาจอง") or ""),
+    }
 
 
 def parse_shirt_detail(detail, unit_price, product_name):
@@ -543,6 +581,7 @@ def attach_slip_from_url(order):
 
 
 def shirt_from_sheet(row, cat):
+    row = normalize_shirt_sheet_row(row)
     code = clean(sheet_cell(row, "รหัส", "code"), 20).upper()
     if not code.startswith("SH"):
         return None
@@ -562,6 +601,7 @@ def shirt_from_sheet(row, cat):
     item_total = sum(item["price"] * item["qty"] for item in items)
     total = parse_money(sheet_cell(row, "ยอด", "total")) or item_total
     shipping_fee = max(0, total - item_total) if pickup == "จัดส่ง" else 0
+    # If delivery but sheet total has no shipping yet, keep sheet total as paid amount
     created = clean(sheet_cell(row, "วันเวลาจอง", "createdAt"), 60) or datetime.now(timezone.utc).isoformat()
     slip_url = clean(sheet_cell(row, "ลิงก์สลิป", "slipUrl"), 500)
     slip_mark = clean(sheet_cell(row, "มีสลิป", "slipStatus", "hasSlip"), 40)
@@ -576,7 +616,7 @@ def shirt_from_sheet(row, cat):
         "phone": phone if valid_phone(phone) else phone_of("0" + phone) if phone else "",
         "lineId": "",
         "pickup": pickup,
-        "address": address,
+        "address": address if pickup == "จัดส่ง" else "",
         "trackingNumber": clean(sheet_cell(row, "หมายเลขพัสดุ", "trackingNumber"), 80),
         "items": items,
         "shippingFee": shipping_fee,
@@ -630,6 +670,11 @@ def merge_booking(existing, incoming):
     if not existing:
         return incoming, "added"
     changed = False
+    try:
+        existing_total = int(existing.get("total") or 0)
+    except (TypeError, ValueError):
+        existing_total = 0
+    repair = existing_total > 100_000 or existing_total <= 0
     for key in (
         "name", "hostName", "phone", "address", "pickup", "trackingNumber",
         "generation", "items", "tableCount", "seats", "total", "shippingFee", "status", "createdAt", "slipUrl",
@@ -638,6 +683,11 @@ def merge_booking(existing, incoming):
             continue
         new_val = incoming.get(key)
         old_val = existing.get(key)
+        if key in ("total", "items", "shippingFee", "pickup", "address") and repair and new_val not in ("", None, [], 0):
+            if new_val != old_val:
+                existing[key] = new_val
+                changed = True
+            continue
         if new_val in ("", None, [], 0) and old_val not in ("", None, [], 0):
             continue
         if key == "status" and old_val == "confirmed" and new_val == "pending":

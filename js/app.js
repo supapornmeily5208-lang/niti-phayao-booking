@@ -143,7 +143,8 @@ function shirtShippingFee() {
 }
 
 function shirtSubtotal() {
-  return shirtLines().reduce((sum, [, qty]) => sum + qty * state.catalog.shirt.price, 0)
+  const price = Number(state.catalog.shirt.price) || 0
+  return shirtLines().reduce((sum, [, qty]) => sum + Number(qty) * price, 0)
 }
 
 function shirtTotal() {
@@ -441,8 +442,8 @@ function shirtSizeStep() {
         }).join('')}
       </div>
       <div class="line"><span>เสื้อ ${pieces} ตัว</span><span>${baht(subtotal)}</span></div>
-      ${shipping ? `<div class="line"><span>ค่าจัดส่ง</span><span>${baht(shipping)}</span></div>` : ''}
-      <div class="line"><span>ยอดชำระ</span><strong>${baht(shirtTotal())}</strong></div>
+      ${shipping && pieces ? `<div class="line"><span>ค่าจัดส่ง</span><span>${baht(shipping)}</span></div>` : ''}
+      <div class="line"><span>ยอดรวมทั้งสิ้น</span><strong>${baht(pieces ? shirtTotal() : 0)}</strong></div>
       <button class="btn btn-dark" type="submit"${state.catalog.shirtOpen ? '' : ' disabled'}>ยืนยันรายการ</button>
     </form>`
 }
@@ -495,13 +496,16 @@ function receiptModel(kind, order) {
       shipping.push(['ที่อยู่', order.address || '-'])
       if (order.trackingNumber) shipping.push(['หมายเลขพัสดุ', order.trackingNumber])
     }
-    const itemTotal = order.items.reduce((sum, item) => sum + item.price * item.qty, 0)
+    const itemTotal = order.items.reduce((sum, item) => sum + Number(item.price) * Number(item.qty), 0)
     const lines = [
-      ...order.items.map((item) => [`ขนาด ${item.size} × ${item.qty}`, baht(item.price * item.qty)]),
+      ...order.items.map((item) => [`ขนาด ${item.size} × ${item.qty}`, baht(Number(item.price) * Number(item.qty))]),
     ]
     if (shippingFee > 0) lines.push(['ค่าจัดส่ง', baht(shippingFee)])
-    else if (pickup === 'จัดส่ง' && order.total > itemTotal) lines.push(['ค่าจัดส่ง', baht(order.total - itemTotal)])
-    lines.push([`รวม ${pieces} ตัว`, baht(order.total)])
+    else if (pickup === 'จัดส่ง' && Number(order.total) > itemTotal) lines.push(['ค่าจัดส่ง', baht(Number(order.total) - itemTotal)])
+    if (shippingFee > 0 || Number(order.total) !== itemTotal) {
+      lines.push(['ราคาสินค้า', baht(itemTotal)])
+    }
+    lines.push(['ยอดรวมทั้งสิ้น', baht(order.total)])
     return {
       kind,
       kindLabel: 'เสื้อที่ระลึก',
