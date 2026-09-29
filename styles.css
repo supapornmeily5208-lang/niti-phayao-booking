@@ -189,26 +189,13 @@ main { padding: 42px 0 20px; }
 
 .pay-card, .success, .panel { padding: 22px; }
 .pay-card {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 22px;
-  align-items: center;
+  display: block;
 }
-.qr-frame {
-  background: white;
-  border-radius: 18px;
-  padding: 10px;
-  border: 1px solid var(--line);
-}
-.qr-frame svg { width: 100%; height: auto; display: block; }
-.qr-frame-image { padding: 0; overflow: hidden; }
-.qr-frame-image img { width: 100%; height: auto; display: block; vertical-align: middle; }
 .pay-method {
-  margin: 14px 0;
-  padding: 12px 0;
-  border-top: 1px solid var(--line);
+  margin: 14px 0 0;
+  padding: 0;
+  border-top: 0;
 }
-.pay-method:first-of-type { border-top: 0; padding-top: 0; }
 .pay-method-title {
   margin: 0 0 8px;
   font-weight: 700;

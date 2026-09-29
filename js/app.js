@@ -268,7 +268,7 @@ function homePage() {
           <ol class="steps">
             <li><strong>กรอก</strong>ชื่อ เบอร์โทร และที่อยู่</li>
             <li><strong>เลือก</strong>ไซส์เสื้อหรือจำนวนโต๊ะจีน</li>
-            <li><strong>สแกน</strong>คิวอาร์กรุงไทย แล้วตรวจชื่อบัญชีก่อนโอน</li>
+            <li><strong>โอน</strong>เข้าบัญชีกรุงไทยตามยอดจอง แล้วตรวจชื่อบัญชีก่อนโอน</li>
             <li><strong>แนบสลิป</strong>หลังโอนเงิน แล้วกดยืนยันเพื่อรับใบจอง</li>
           </ol>
         </section>
@@ -295,49 +295,27 @@ function scene(rain) {
 
 function paymentCard(amount, reference) {
   const payment = state.catalog.payment
-  const qrImage = payment.qrImage || ''
-  const payload = qrImage ? '' : payloadFor(amount, reference)
   const heading = amount ? baht(amount) : 'ใส่ยอดตามยอดจอง'
   const account = String(payment.accountNumber || '').trim()
-  const qrName = String(payment.qrAccountName || payment.accountName || '').trim()
   const accountName = String(payment.accountName || '').trim()
-  const qrBlock = qrImage
-    ? `<div class="qr-frame qr-frame-image"><img src="${esc(qrImage)}" alt="คิวอาร์รับเงิน ${esc(qrName)}"></div>`
-    : `<div class="qr-frame" data-qr="${esc(payload)}"></div>`
   return `
     <section class="pay-card">
-      ${qrBlock}
       <div>
-        <p class="kicker">ชำระเงินได้ 2 ช่องทาง</p>
+        <p class="kicker">ชำระเงิน</p>
         <h3>${heading}</h3>
-
         <div class="pay-method">
-          <p class="pay-method-title">1) สแกนคิวอาร์</p>
-          <dl>
-            <div><dt>ผู้รับ</dt><dd>${esc(qrName)}</dd></div>
-            ${payment.purpose ? `<div><dt>วัตถุประสงค์</dt><dd>${esc(payment.purpose)}</dd></div>` : ''}
-          </dl>
-          <p class="fine">สแกนคิวอาร์ด้านซ้าย แล้วใส่ยอด ${amount ? baht(amount) : 'ตามยอดจอง'}</p>
-        </div>
-
-        ${account ? `
-        <div class="pay-method">
-          <p class="pay-method-title">2) โอนเข้าบัญชี</p>
+          <p class="pay-method-title">โอนเข้าบัญชี</p>
           <dl>
             <div><dt>ธนาคาร</dt><dd>${esc(payment.bank)}</dd></div>
             <div><dt>เลขที่บัญชี</dt><dd class="account">${esc(account)}</dd></div>
             <div><dt>ชื่อบัญชี</dt><dd>${esc(accountName)}</dd></div>
             ${reference ? `<div><dt>รหัสอ้างอิงการจอง</dt><dd>${esc(reference)}</dd></div>` : ''}
           </dl>
-        </div>` : ''}
-
+        </div>
         <div class="row-actions no-print">
           ${account ? `<button class="btn btn-line" type="button" data-action="copy" data-value="${esc(digits(account))}">คัดลอกเลขบัญชี</button>` : ''}
-          ${qrImage
-            ? `<a class="btn btn-line" href="${esc(qrImage)}" download="payment-qr.png">บันทึกคิวอาร์</a>`
-            : `<button class="btn btn-line" type="button" data-action="download-qr" data-payload="${esc(payload)}" data-name="${esc(reference || 'krungthai')}">บันทึกคิวอาร์</button>`}
         </div>
-        <p class="fine">เลือกช่องทางใดก็ได้ โอนครบยอดแล้วแนบสลิปก่อนกดยืนยัน</p>
+        <p class="fine">โอนครบยอด ${amount ? baht(amount) : 'ตามยอดจอง'} แล้วแนบสลิปก่อนกดยืนยัน</p>
       </div>
     </section>`
 }
@@ -457,7 +435,7 @@ function shirtPayModal() {
     <div class="modal-back">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pay-title">
         <p class="kicker">ชำระเงิน</p>
-        <h2 id="pay-title">สแกนคิวอาร์เพื่อโอนเงิน</h2>
+        <h2 id="pay-title">โอนเงินตามยอดจอง</h2>
         ${state.error ? `<p class="alert">${esc(state.error)}</p>` : ''}
         ${lines.map(([size, qty]) => `<div class="line"><span>ขนาด ${esc(size)} × ${qty}</span><span>${baht(qty * state.catalog.shirt.price)}</span></div>`).join('')}
         ${shipping ? `<div class="line"><span>ค่าจัดส่ง</span><span>${baht(shipping)}</span></div>` : ''}
@@ -648,7 +626,7 @@ function tablePayModal() {
     <div class="modal-back">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="table-pay-title">
         <p class="kicker">ชำระเงิน</p>
-        <h2 id="table-pay-title">สแกนคิวอาร์เพื่อโอนเงิน</h2>
+        <h2 id="table-pay-title">โอนเงินตามยอดจอง</h2>
         ${state.error ? `<p class="alert">${esc(state.error)}</p>` : ''}
         <div class="line"><span>${count} โต๊ะ · รุ่น ${esc(state.table.generation)} · ${count * table.seats} ท่าน</span><span>${baht(tableTotal())}</span></div>
         ${paymentCard(tableTotal(), '')}
@@ -743,7 +721,7 @@ function orderCard(kind, order) {
             </label>
             <button class="btn btn-line" type="button" data-action="copy" data-value="${esc(order.code)}">คัดลอกรหัส</button>
           </div>` : ''}
-        ${needPay ? `<details class="booking-pay"><summary>แสดงคิวอาร์ชำระเงิน</summary>${paymentCard(order.total, order.code)}</details>` : ''}
+        ${needPay ? `<details class="booking-pay"><summary>แสดงบัญชีชำระเงิน</summary>${paymentCard(order.total, order.code)}</details>` : ''}
       </div>
     </details>`
 }
